@@ -1,91 +1,214 @@
 # Random File Picker
 
-Programa Python que seleciona aleatoriamente um arquivo de uma lista de pastas, excluindo arquivos com prefixo específico.
+Programa Python com interface gráfica que seleciona arquivos de forma inteligente a partir de uma lista de pastas, com suporte a seleção sequencial e aleatória.
 
-## Funcionalidades
+## 🎯 Funcionalidades
 
-- Busca recursiva em pastas e subpastas
-- Exclusão de arquivos com prefixo "_L_" no nome
-- Seleção aleatória de arquivos
-- Tratamento de erros para pastas inexistentes
+### Interface Gráfica
+- **Interface completa em Tkinter** com todas as configurações acessíveis
+- **Gerenciamento de pastas** com adição e remoção via interface
+- **Log detalhado** de todas as operações realizadas
+- **Histórico persistente** dos últimos arquivos selecionados (configurável de 1 a 50)
+- **Barras de rolagem** nas áreas de opções e histórico para melhor navegação
 
-## Como usar
+### Seleção Inteligente de Arquivos
+- **Seleção Sequencial**: Detecta automaticamente arquivos numerados e seleciona o próximo não lido
+  - Suporta múltiplos formatos: `001`, `#001`, `"01 de 10"`, `Cap/Vol/Part/Ep`, numerais romanos (I, II, III)
+  - Gerencia múltiplas coleções/séries na mesma pasta
+  - Rastreia arquivos já lidos por pasta
+- **Seleção Aleatória**: Modo tradicional de seleção totalmente aleatória
+- **Exclusão de arquivos lidos**: Ignora automaticamente arquivos com prefixo configurável (padrão: `_L_`)
 
-### Uso básico
+### Suporte a Cloud Storage
+- Funciona com **Google Drive**, **OneDrive** e outras pastas de sincronização
+- Ignora automaticamente pastas ocultas (prefixo `.`)
+- Busca recursiva em todas as subpastas
+
+### Automação
+- **Abrir pasta automaticamente** após seleção (opcional)
+- **Abrir arquivo automaticamente** com o aplicativo padrão (opcional)
+- **Persistência de configurações**: Todas as preferências são salvas automaticamente
+- **Detecção de mudanças**: Alerta se há configurações não salvas ao fechar
+
+## 📋 Requisitos
+
+- Python 3.6 ou superior
+- Módulos padrão do Python (tkinter, pathlib, json, threading)
+
+## 🚀 Como usar
+
+### Iniciar a interface gráfica
+
+```bash
+python random_file_picker_gui.py
+```
+
+### Uso programático
+
+#### Seleção com lógica sequencial
+
+```python
+from sequential_selector import select_file_with_sequence_logic
+
+folders = [
+    r"C:\Users\Documents\Comics",
+    r"D:\Books"
+]
+
+selected_file, info = select_file_with_sequence_logic(folders, exclude_prefix="_L_")
+
+if info['sequence_detected']:
+    print(f"Sequência detectada: {info['sequence_info']['collection']}")
+    print(f"Arquivo {info['sequence_info']['file_number']} selecionado")
+else:
+    print("Seleção aleatória realizada")
+
+print(f"Arquivo: {selected_file}")
+```
+
+#### Seleção aleatória tradicional
 
 ```python
 from random_file_picker import pick_random_file
 
-folders = [
-    r"C:\Users\Documents",
-    r"C:\Users\Downloads"
-]
-
-selected_file = pick_random_file(folders)
+folders = [r"C:\Users\Documents"]
+selected_file = pick_random_file(folders, exclude_prefix="_L_")
 print(f"Arquivo selecionado: {selected_file}")
 ```
 
-### Executar o programa de exemplo
-
-```bash
-python random_file_picker.py
-```
-
-### Personalizar o prefixo de exclusão
+#### Rastreamento de arquivos lidos
 
 ```python
-from random_file_picker import pick_random_file
+from sequential_selector import SequentialFileTracker
 
-folders = [r"C:\Users\Documents"]
-selected_file = pick_random_file(folders, exclude_prefix="_OLD_")
+tracker = SequentialFileTracker()
+
+# Marcar arquivo como lido
+tracker.mark_as_read(r"C:\Comics", "Issue #001.cbr")
+
+# Verificar se foi lido
+if tracker.is_read(r"C:\Comics", "Issue #001.cbr"):
+    print("Arquivo já foi lido")
+
+# Limpar histórico de uma pasta
+tracker.clear_folder(r"C:\Comics")
 ```
 
-### Listar todos os arquivos válidos
+## 🎨 Interface Gráfica
 
-```python
-from random_file_picker import collect_files
+### Áreas da Interface
 
-folders = [r"C:\Users\Documents"]
-files = collect_files(folders)
+1. **Pastas para buscar**: Lista de pastas onde os arquivos serão procurados
+2. **Opções** (com scroll):
+   - Prefixo de arquivo lido (padrão: `_L_`)
+   - Limite de histórico (1-50 arquivos)
+   - Checkbox: Abrir pasta automaticamente
+   - Checkbox: Abrir arquivo automaticamente
+   - Checkbox: Usar seleção sequencial
+3. **Log / Resultado**: Exibe informações detalhadas sobre a busca e seleção
+4. **Últimos Arquivos Selecionados** (com scroll): Histórico clicável dos arquivos recentes
 
-print(f"Total de arquivos: {len(files)}")
-for file in files:
-    print(file)
+### Atalhos e Funcionalidades
+
+- **Botão "Selecionar Arquivo Aleatório"**: Executa a busca e seleção
+- **Botão "Salvar Configuração"**: Ativado apenas quando há mudanças não salvas
+- **Clique no histórico**: Abre qualquer arquivo da lista de histórico
+- **Detecção de mudanças**: A barra de status indica quando há configurações não salvas
+- **Confirmação ao fechar**: Pergunta se deseja salvar antes de sair
+
+## 📂 Arquivos de Configuração
+
+### config.json
+Armazena todas as preferências do usuário:
+```json
+{
+  "folders": ["C:\\Pasta1", "D:\\Pasta2"],
+  "exclude_prefix": "_L_",
+  "open_folder": true,
+  "open_file": false,
+  "use_sequence": true,
+  "history_limit": 5,
+  "file_history": ["C:\\file1.pdf", "D:\\file2.cbr"]
+}
 ```
 
-## Requisitos
-
-- Python 3.6 ou superior
-- Módulos padrão do Python (pathlib, random, os)
-
-## Exemplos
-
-### Exemplo 1: Uso simples
-
-```python
-folders = [r"E:\Projetos"]
-arquivo = pick_random_file(folders)
-print(arquivo)
+### read_files_tracker.json
+Rastreia quais arquivos foram marcados como lidos (usado pela seleção sequencial):
+```json
+{
+  "C:\\Comics\\Series1": ["Issue #001.cbr", "Issue #002.cbr"],
+  "D:\\Books": ["Chapter 01.pdf"]
+}
 ```
 
-### Exemplo 2: Múltiplas pastas
+## 🔧 Exemplos Avançados
+
+### Exemplo 1: Detectar padrões de numeração
 
 ```python
-folders = [
-    r"C:\Users\Documents",
-    r"C:\Users\Pictures",
-    r"D:\Backup"
+from sequential_selector import extract_number_from_filename
+
+files = [
+    "Chapter 001.pdf",
+    "Episode #05.mkv",
+    "Part II.txt",
+    "Volume 03 de 10.cbr"
 ]
-arquivo = pick_random_file(folders)
-print(arquivo)
+
+for file in files:
+    result = extract_number_from_filename(file)
+    if result:
+        print(f"{file} -> Número: {result['number']}, Total: {result.get('total')}")
 ```
 
-### Exemplo 3: Tratamento de exceções
+### Exemplo 2: Analisar sequências em uma pasta
 
 ```python
-try:
-    arquivo = pick_random_file([r"C:\PastaInexistente"])
-    print(arquivo)
-except ValueError as e:
-    print(f"Erro: {e}")
+from sequential_selector import analyze_folder_sequence
+
+folder = r"C:\Comics\Batman"
+sequences = analyze_folder_sequence(folder, exclude_prefix="_L_")
+
+for seq in sequences:
+    print(f"Coleção: {seq['collection']}")
+    print(f"Total de arquivos: {seq['total_files']}")
+    print(f"Tipo: {seq['type']}")
+    print(f"Arquivos: {seq['files'][:3]}...")  # Primeiros 3
 ```
+
+### Exemplo 3: Abrir pasta do arquivo selecionado
+
+```python
+from random_file_picker import pick_random_file, open_folder
+
+folders = [r"C:\Users\Documents"]
+arquivo = pick_random_file(folders)
+print(f"Arquivo: {arquivo}")
+
+# Abre o explorador de arquivos na pasta
+open_folder(arquivo)
+```
+
+## 🎮 Casos de Uso
+
+- **Leitura de quadrinhos/mangás**: Seleciona automaticamente o próximo capítulo não lido
+- **Estudos**: Escolhe aleatoriamente materiais de estudo de várias pastas
+- **Entretenimento**: Seleciona filmes, séries ou músicas aleatoriamente
+- **Organização**: Gerencia leitura sequencial de documentos numerados
+
+## 🐛 Tratamento de Erros
+
+O programa trata automaticamente:
+- Pastas inexistentes ou inacessíveis
+- Arquivos não sincronizados (cloud storage)
+- Pastas sem arquivos válidos
+- Erros de permissão
+- Formatos de numeração inválidos
+
+## 📝 Notas
+
+- Pastas com prefixo `.` são ignoradas automaticamente (ex: `.git`, `.vscode`)
+- Arquivos em cloud storage podem aparecer como "Não sincronizado" se ainda não foram baixados
+- A seleção sequencial funciona melhor quando os arquivos seguem um padrão consistente de numeração
+- O histórico é salvo automaticamente sempre que um novo arquivo é selecionado
+- Todas as configurações persistem entre sessões do programa
