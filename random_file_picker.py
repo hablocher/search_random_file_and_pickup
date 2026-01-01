@@ -88,8 +88,8 @@ def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessi
                     # Filtra por palavras-chave se fornecidas
                     if keywords:
                         file_name_lower = file_path.name.lower()
-                        # Verifica se TODAS as palavras-chave estão no nome do arquivo
-                        if not all(keyword in file_name_lower for keyword in keywords):
+                        # Verifica se ao menos UMA palavra-chave está no nome do arquivo
+                        if not any(keyword in file_name_lower for keyword in keywords):
                             continue
                     
                     # Verifica acessibilidade apenas se solicitado

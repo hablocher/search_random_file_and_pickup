@@ -19,7 +19,7 @@ Programa Python com interface gráfica que seleciona arquivos de forma inteligen
   - Rastreia arquivos já lidos por pasta
 - **Seleção Aleatória**: Modo tradicional de seleção totalmente aleatória
 - **Exclusão de arquivos lidos**: Ignora automaticamente arquivos com prefixo configurável (padrão: `_L_`)
-- **Filtragem por palavras-chave**: Busca arquivos que contenham TODAS as palavras-chave no nome (case-insensitive)
+- **Filtragem por palavras-chave**: Busca arquivos que contenham ao menos UMA das palavras-chave no nome (case-insensitive)
 
 ### Suporte a Cloud Storage
 - Funciona com **Google Drive**, **OneDrive** e outras pastas de sincronização
@@ -116,7 +116,7 @@ tracker.clear_folder(r"C:\Comics")
 2. **Opções** (com scroll):
    - Prefixo de arquivo lido (padrão: `_L_`)
    - Limite de histórico (1-50 arquivos)
-   - **Palavras-chave** (máx. 3, separadas por vírgula): Filtra arquivos que contenham TODAS as palavras
+   - **Palavras-chave** (máx. 3, separadas por vírgula): Filtra arquivos que contenham ao menos UMA das palavras
    - Checkbox: Abrir pasta automaticamente
    - Checkbox: Abrir arquivo automaticamente
    - Checkbox: Usar seleção sequencial
@@ -128,8 +128,8 @@ tracker.clear_folder(r"C:\Comics")
 - **Botão "Selecionar Arquivo Aleatório"**: Executa a busca e seleção
 - **Botão "Salvar Configuração"**: Ativado apenas quando há mudanças não salvas
 - **Clique no histórico**: Abre qualquer arquivo da lista de histórico
-- **Filtro por palavras-chave**: Digite até 3 palavras separadas por vírgula (ex: `batman, year, one`)
-  - O arquivo deve conter **TODAS** as palavras no nome (operação AND)
+- **Filtro por palavras-chave**: Digite até 3 palavras separadas por vírgula (ex: `batman, superman, wonder`)
+  - O arquivo deve conter **ao menos UMA** das palavras no nome (operação OR)
   - Busca é case-insensitive (não diferencia maiúsculas/minúsculas)
   - Deixe vazio para buscar todos os arquivos
 - **Detecção de mudanças**: A barra de status indica quando há configurações não salvas
@@ -170,11 +170,11 @@ from random_file_picker import pick_random_file
 
 folders = [r"C:\Comics"]
 
-# Busca arquivos que contenham "batman" E "dark" E "knight" no nome
-keywords = ["batman", "dark", "knight"]
+# Busca arquivos que contenham "batman" OU "superman" OU "flash" no nome
+keywords = ["batman", "superman", "flash"]
 arquivo = pick_random_file(folders, exclude_prefix="_L_", keywords=keywords)
 
-# Resultado possível: "Batman - The Dark Knight Returns.cbr"
+# Resultado possível: "Batman - Year One.cbr" ou "Superman - Red Son.cbr" ou "Flash - Rebirth.cbr"
 print(f"Arquivo encontrado: {arquivo}")
 ```
 
@@ -231,9 +231,9 @@ open_folder(arquivo)
 ## 🎮 Casos de Uso
 
 - **Leitura de quadrinhos/mangás**: Seleciona automaticamente o próximo capítulo não lido
-- **Busca específica**: Use palavras-chave para encontrar arquivos de um personagem, série ou tema específico
-  - Ex: `batman, dark knight` encontra apenas arquivos do Batman da saga Dark Knight
-  - Ex: `spider, man, 2023` encontra apenas HQs do Homem-Aranha de 2023
+- **Busca específica**: Use palavras-chave para encontrar arquivos de vários personagens, séries ou temas
+  - Ex: `batman, superman, flash` encontra arquivos de qualquer um desses heróis
+  - Ex: `2023, 2024` encontra arquivos de 2023 ou 2024
 - **Estudos**: Escolhe aleatoriamente materiais de estudo de várias pastas
 - **Entretenimento**: Seleciona filmes, séries ou músicas aleatoriamente
 - **Organização**: Gerencia leitura sequencial de documentos numerados
@@ -254,7 +254,7 @@ O programa trata automaticamente:
 - Arquivos em cloud storage podem aparecer como "Não sincronizado" se ainda não foram baixados
 - A seleção sequencial funciona melhor quando os arquivos seguem um padrão consistente de numeração
 - **Palavras-chave**: 
-  - Operação AND (todas devem estar presentes no nome do arquivo)
+  - Operação OR (ao menos uma deve estar presente no nome do arquivo)
   - Case-insensitive (não diferencia maiúsculas de minúsculas)
   - Máximo de 3 palavras-chave
   - Deixe vazio para buscar todos os arquivos

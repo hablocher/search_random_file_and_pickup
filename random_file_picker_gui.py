@@ -4,10 +4,12 @@ import json
 import os
 import subprocess
 import platform
+import mimetypes
 from pathlib import Path
 import threading
 from random_file_picker import pick_random_file, open_folder
-from sequential_selector import select_file_with_sequence_logic, SequentialFileTracker
+from sequential_selector import select_file_with_sequence_logic, SequentialFileTracker, analyze_folder_sequence, get_next_unread_file
+from system_utils import get_default_app_info, format_app_info_for_log
 import time
 
 
@@ -124,7 +126,7 @@ class RandomFilePickerGUI:
         self.keywords_entry.grid(row=2, column=2, columnspan=2, sticky=(tk.W, tk.E), padx=(20, 0))
         
         keywords_info = ttk.Label(options_frame,
-                                 text="(Arquivo deve conter TODAS as palavras-chave no nome)",
+                                 text="(Arquivo deve conter ao menos UMA das palavras-chave no nome)",
                                  font=('Arial', 8, 'italic'))
         keywords_info.grid(row=3, column=2, columnspan=2, sticky=tk.W, padx=(20, 0))
         
@@ -416,6 +418,15 @@ class RandomFilePickerGUI:
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao abrir arquivo: {e}")
     
+    def _get_default_app(self, file_path):
+        """Obtém o aplicativo padrão que abrirá o arquivo."""
+        try:
+            app_info = get_default_app_info(file_path)
+            return app_info.get('display_name', 'Desconhecido')
+        except Exception as e:
+            file_ext = Path(file_path).suffix.lower()
+            return f"Aplicativo padrão para {file_ext if file_ext else 'este tipo de arquivo'}"
+    
     def _open_file(self, file_path):
         """Abre o arquivo com o aplicativo padrão do sistema."""
         system = platform.system()
@@ -527,9 +538,36 @@ class RandomFilePickerGUI:
                 else:
                     self.log_message(f"\nNenhuma sequência detectada - seleção aleatória", "info")
             else:
-                # Modo aleatório tradicional
+                # Modo aleatório tradicional - mas verifica se faz parte de sequência
                 selected_file = pick_random_file(folders, exclude_prefix, check_accessibility=False, keywords=keywords)
                 self.log_message(f"\nMétodo: Seleção Aleatória", "info")
+                
+                # Verifica se o arquivo aleatório faz parte de uma sequência
+                file_folder = Path(selected_file).parent
+                sequences = analyze_folder_sequence(file_folder, exclude_prefix, keywords)
+                
+                if sequences:
+                    # Arquivo faz parte de uma sequência
+                    tracker = SequentialFileTracker()
+                    result = get_next_unread_file(sequences, tracker, keywords)
+                    
+                    if result:
+                        next_file, selected_sequence, file_info = result
+                        self.log_message(f"\n✓ Arquivo aleatório faz parte de uma sequência!", "success")
+                        self.log_message(f"  Selecionando primeiro arquivo não lido da sequência", "info")
+                        self.log_message(f"  Coleção: {selected_sequence['collection']}", "info")
+                        self.log_message(f"  Tipo de ordenação: {selected_sequence['type']}", "info")
+                        self.log_message(f"  Total de arquivos na sequência: {selected_sequence['count']}", "info")
+                        if file_info['number']:
+                            self.log_message(f"  Número do arquivo: {file_info['number']}", "info")
+                        
+                        # Substitui pelo primeiro não lido da sequência
+                        selected_file = next_file
+                        tracker.mark_as_read(selected_file)
+                    else:
+                        self.log_message(f"\nArquivo faz parte de sequência, mas todos já foram lidos", "info")
+                else:
+                    self.log_message(f"\nArquivo isolado (não faz parte de sequência)", "info")
             
             elapsed_time = time.time() - start_time
             
@@ -549,6 +587,15 @@ class RandomFilePickerGUI:
             self.log_message(f"  Caminho: {selected_file}", "success")
             self.log_message(f"  Tamanho: {size_str}", "success")
             
+            # Identifica o aplicativo padrão que abrirá o arquivo
+            try:
+                app_info = get_default_app_info(selected_file)
+                self.log_message("\nInformações do aplicativo padrão:", "info")
+                self.log_message(format_app_info_for_log(app_info), "info")
+            except Exception as e:
+                default_app = self._get_default_app(selected_file)
+                self.log_message(f"\nAplicativo padrão: {default_app}", "info")
+            
             # Adiciona ao histórico
             self.root.after(0, lambda: self.add_to_history(selected_file))
             
@@ -564,7 +611,13 @@ class RandomFilePickerGUI:
             
             # Abre o arquivo apenas se a opção estiver marcada
             if open_file_after:
-                self.log_message("Abrindo arquivo...", "info")
+                try:
+                    app_info = get_default_app_info(selected_file)
+                    app_name = app_info.get('display_name', 'aplicativo padrão')
+                except:
+                    app_name = 'aplicativo padrão'
+                    
+                self.log_message(f"Abrindo arquivo com {app_name}...", "info")
                 self._open_file(selected_file)
                 status_parts.append("arquivo aberto")
             else:

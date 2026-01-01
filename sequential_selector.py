@@ -189,7 +189,7 @@ def extract_collection_name(filename: str) -> str:
     return collection_name if collection_name else name_without_ext
 
 
-def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_") -> Optional[List[Dict]]:
+def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_", keywords: List[str] = None) -> Optional[List[Dict]]:
     """
     Analisa se os arquivos em uma pasta seguem uma sequência ordenada.
     Agrupa arquivos por coleção (nome base) para suportar múltiplas coleções na mesma pasta.
@@ -197,6 +197,7 @@ def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_") -> O
     Args:
         folder_path: Caminho da pasta
         exclude_prefix: Prefixo de arquivos a ignorar
+        keywords: Lista de palavras-chave para filtrar arquivos
         
     Returns:
         Lista de dicionários com informações das sequências por coleção, ou None se não houver padrão
@@ -214,6 +215,13 @@ def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_") -> O
             # Ignora arquivos com prefixo de exclusão
             if filename.startswith(exclude_prefix):
                 continue
+            
+            # Filtra por palavras-chave se fornecidas
+            if keywords:
+                file_name_lower = filename.lower()
+                # Verifica se ao menos UMA palavra-chave está no nome do arquivo
+                if not any(keyword in file_name_lower for keyword in keywords):
+                    continue
             
             # Tenta extrair número e nome da coleção
             result = extract_number_from_filename(filename)
@@ -283,7 +291,7 @@ def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_") -> O
     return None
 
 
-def get_next_unread_file(sequences: List[Dict], tracker: SequentialFileTracker) -> Optional[Tuple[str, Dict]]:
+def get_next_unread_file(sequences: List[Dict], tracker: SequentialFileTracker, keywords: List[str] = None) -> Optional[Tuple[str, Dict]]:
     """
     Retorna o próximo arquivo não lido em uma das sequências.
     Seleciona aleatoriamente uma coleção com arquivos não lidos.
@@ -291,6 +299,7 @@ def get_next_unread_file(sequences: List[Dict], tracker: SequentialFileTracker) 
     Args:
         sequences: Lista de sequências detectadas
         tracker: Rastreador de arquivos lidos
+        keywords: Lista de palavras-chave para filtrar arquivos
         
     Returns:
         Tupla (caminho do arquivo, info da sequência) ou None se não houver
@@ -305,13 +314,25 @@ def get_next_unread_file(sequences: List[Dict], tracker: SequentialFileTracker) 
         # Procura o primeiro arquivo não lido nesta coleção
         for file_info in sequence['files']:
             file_path = file_info['path']
-            if not tracker.is_read(file_path):
-                collections_with_unread.append({
-                    'sequence': sequence,
-                    'next_file': file_path,
-                    'file_info': file_info
-                })
-                break  # Encontrou, passa para próxima coleção
+            
+            # Verifica se já foi lido
+            if tracker.is_read(file_path):
+                continue
+            
+            # Filtra por palavras-chave se fornecidas
+            if keywords:
+                file_name = Path(file_path).name.lower()
+                # Verifica se ao menos UMA palavra-chave está no nome do arquivo
+                if not any(keyword in file_name for keyword in keywords):
+                    continue
+            
+            # Arquivo válido encontrado
+            collections_with_unread.append({
+                'sequence': sequence,
+                'next_file': file_path,
+                'file_info': file_info
+            })
+            break  # Encontrou, passa para próxima coleção
     
     if not collections_with_unread:
         return None
@@ -411,8 +432,8 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
                 # Filtra por palavras-chave se fornecidas
                 if keywords:
                     file_name_lower = file_path.name.lower()
-                    # Verifica se TODAS as palavras-chave estão no nome do arquivo
-                    if not all(keyword in file_name_lower for keyword in keywords):
+                    # Verifica se ao menos UMA palavra-chave está no nome do arquivo
+                    if not any(keyword in file_name_lower for keyword in keywords):
                         continue
                 
                 all_files.append(str(file_path))
