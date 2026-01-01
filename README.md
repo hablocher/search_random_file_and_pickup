@@ -19,6 +19,11 @@ Programa Python com interface gráfica que seleciona arquivos de forma inteligen
   - Gerencia múltiplas coleções/séries na mesma pasta
   - Rastreia arquivos já lidos por pasta
 - **Seleção Aleatória**: Modo tradicional de seleção totalmente aleatória
+- **Suporte a arquivos ZIP**: Detecta automaticamente quando um arquivo ZIP é selecionado
+  - Explora o conteúdo do ZIP e continua a busca dentro dele
+  - Aplica as mesmas regras de filtragem (palavras-chave, prefixo de exclusão)
+  - Extrai o arquivo selecionado para pasta temporária e abre normalmente
+  - Limpa automaticamente os arquivos temporários após o uso
 - **Exclusão de arquivos lidos**: Ignora automaticamente arquivos com prefixo configurável (padrão: `_L_`)
 - **Filtragem por palavras-chave**: Busca arquivos que contenham ao menos UMA das palavras-chave no nome (case-insensitive)
 
@@ -125,6 +130,7 @@ tracker.clear_folder(r"C:\Comics")
    - Checkbox: Abrir pasta automaticamente
    - Checkbox: Abrir arquivo automaticamente
    - Checkbox: Usar seleção sequencial
+   - **Checkbox: Processar arquivos ZIP** - Quando ativado, abre ZIPs e busca dentro deles; quando desativado, trata ZIPs como arquivos normais
 3. **Log / Resultado**: Exibe informações detalhadas sobre a busca e seleção
 4. **Últimos Arquivos Selecionados** (com scroll): Histórico clicável dos arquivos recentes
 
@@ -142,6 +148,10 @@ tracker.clear_folder(r"C:\Comics")
   - O arquivo deve conter **ao menos UMA** das palavras no nome (operação OR)
   - Busca é case-insensitive (não diferencia maiúsculas/minúsculas)
   - Deixe vazio para buscar todos os arquivos
+  - Funciona também dentro de arquivos ZIP quando o processamento está ativado
+- **Processar arquivos ZIP**: Controla se arquivos ZIP devem ser explorados
+  - **Ativado** (padrão): Abre o ZIP, busca dentro dele e extrai o arquivo selecionado
+  - **Desativado**: Trata arquivos ZIP como arquivos normais (não explora o conteúdo)
 - **Detecção de mudanças**: A barra de status indica quando há configurações não salvas
 - **Confirmação ao fechar**: Pergunta se deseja salvar antes de sair
 
@@ -183,6 +193,7 @@ Armazena todas as preferências do usuário:
   "open_folder": true,
   "open_file": false,
   "use_sequence": true,
+  "process_zip": true,
   "history_limit": 5,
   "keywords": "batman, year, one",
   "file_history": ["C:\\file1.pdf", "D:\\file2.cbr"]
@@ -264,12 +275,15 @@ open_folder(arquivo)
 ## 🎮 Casos de Uso
 
 - **Leitura de quadrinhos/mangás**: Seleciona automaticamente o próximo capítulo não lido
+  - Suporta coleções em arquivos ZIP (ex: "Vingadores V4 (Bendis).zip")
 - **Busca específica**: Use palavras-chave para encontrar arquivos de vários personagens, séries ou temas
   - Ex: `batman, superman, flash` encontra arquivos de qualquer um desses heróis
   - Ex: `2023, 2024` encontra arquivos de 2023 ou 2024
+  - Funciona também dentro de arquivos ZIP
 - **Estudos**: Escolhe aleatoriamente materiais de estudo de várias pastas
 - **Entretenimento**: Seleciona filmes, séries ou músicas aleatoriamente
 - **Organização**: Gerencia leitura sequencial de documentos numerados
+- **Coleções compactadas**: Processa automaticamente arquivos ZIP que contêm múltiplos arquivos
 
 ## 🐛 Tratamento de Erros
 
@@ -280,12 +294,20 @@ O programa trata automaticamente:
 - Nenhum arquivo encontrado com as palavras-chave especificadas
 - Erros de permissão
 - Formatos de numeração inválidos
+- Arquivos ZIP corrompidos ou inacessíveis
+- Erros na extração de arquivos ZIP
 
 ## 📝 Notas
 
 - Pastas com prefixo `.` são ignoradas automaticamente (ex: `.git`, `.vscode`)
 - Arquivos em cloud storage podem aparecer como "Não sincronizado" se ainda não foram baixados
 - A seleção sequencial funciona melhor quando os arquivos seguem um padrão consistente de numeração
+- **Arquivos ZIP**:
+  - Quando um ZIP é selecionado, o programa automaticamente explora seu conteúdo
+  - Aplica os mesmos filtros (palavras-chave, prefixo de exclusão) aos arquivos dentro do ZIP
+  - Extrai o arquivo selecionado para uma pasta temporária antes de abrir
+  - Remove automaticamente os arquivos temporários após o uso
+  - No histórico, mostra o arquivo ZIP original (não o arquivo extraído)
 - **Palavras-chave**: 
   - Operação OR (ao menos uma deve estar presente no nome do arquivo)
   - Case-insensitive (não diferencia maiúsculas de minúsculas)

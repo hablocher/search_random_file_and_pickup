@@ -4,6 +4,7 @@ import random
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 import os
+from random_file_picker import pick_random_file_with_zip_support, list_files_in_zip, extract_file_from_zip, get_temp_extraction_dir
 
 
 class SequentialFileTracker:
@@ -344,18 +345,26 @@ def get_next_unread_file(sequences: List[Dict], tracker: SequentialFileTracker, 
 
 
 def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_L_", 
-                                    use_sequence: bool = True, keywords: List[str] = None) -> Tuple[Optional[str], Dict]:
+                                    use_sequence: bool = True, keywords: List[str] = None,
+                                    process_zip: bool = True) -> Tuple[Dict, Dict]:
     """
-    Seleciona um arquivo considerando lógica de sequência.
+    Seleciona um arquivo considerando lógica de sequência, com suporte a ZIP.
     
     Args:
         folders: Lista de pastas para buscar
         exclude_prefix: Prefixo de arquivos a ignorar
         use_sequence: Se True, usa lógica de sequência quando detectada
         keywords: Lista de palavras-chave para filtrar arquivos
+        process_zip: Se True, processa arquivos ZIP; se False, trata ZIPs como arquivos normais
         
     Returns:
-        Tupla (caminho do arquivo, informações sobre a seleção)
+        Tupla (dicionário com info do arquivo, informações sobre a seleção)
+        O dicionário do arquivo contém:
+            - file_path: Caminho do arquivo selecionado
+            - is_from_zip: True se veio de um ZIP
+            - zip_path: Caminho do ZIP original (se aplicável)
+            - file_in_zip: Nome do arquivo dentro do ZIP (se aplicável)
+            - temp_dir: Diretório temporário (se aplicável)
     """
     tracker = SequentialFileTracker()
     info = {
@@ -385,7 +394,7 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
             continue
     
     if not unique_folders:
-        return None, info
+        return {'file_path': None, 'is_from_zip': False, 'zip_path': None, 'file_in_zip': None, 'temp_dir': None}, info
     
     # Converte para lista e embaralha
     folder_list = list(unique_folders)
@@ -414,8 +423,12 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
                         'file_number': file_info['number']
                     }
                     
-                    tracker.mark_as_read(next_file)
-                    return next_file, info
+                    # Verifica se é um arquivo ZIP
+                    file_result = _process_file_selection(next_file, exclude_prefix, keywords, is_zip_check=process_zip)
+                    
+                    if file_result:
+                        tracker.mark_as_read(next_file)
+                        return file_result, info
     
     # Se não encontrou com lógica de sequência, seleciona aleatoriamente
     # Coleta todos os arquivos válidos
@@ -443,7 +456,116 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
     if all_files:
         selected = random.choice(all_files)
         info['folder'] = str(Path(selected).parent)
-        # Não marca como lido se foi seleção aleatória
-        return selected, info
+        
+        # IMPORTANTE: Verifica se o arquivo aleatório faz parte de uma sequência
+        # e se há um arquivo anterior não lido
+        selected_folder = Path(selected).parent
+        folder_sequences = analyze_folder_sequence(selected_folder, exclude_prefix, keywords)
+        
+        if folder_sequences:
+            # O arquivo aleatório faz parte de uma sequência!
+            # Vamos buscar o primeiro não lido da sequência
+            temp_tracker = SequentialFileTracker()
+            seq_result = get_next_unread_file(folder_sequences, temp_tracker, keywords)
+            
+            if seq_result:
+                # Encontrou um arquivo não lido anterior na sequência
+                next_file, selected_sequence, file_info = seq_result
+                
+                # Atualiza info para indicar que sequência foi detectada
+                info['method'] = 'sequential'
+                info['sequence_detected'] = True
+                info['sequence_info'] = {
+                    'type': selected_sequence['type'],
+                    'collection': selected_sequence['collection'],
+                    'total_files': selected_sequence['count'],
+                    'file_number': file_info['number']
+                }
+                
+                print(f"Arquivo aleatório '{Path(selected).name}' faz parte de sequência '{selected_sequence['collection']}'")
+                print(f"Selecionando primeiro não lido: '{Path(next_file).name}'")
+                
+                # Usa o arquivo da sequência em vez do aleatório
+                selected = next_file
+        
+        # Verifica se é um arquivo ZIP
+        file_result = _process_file_selection(selected, exclude_prefix, keywords, is_zip_check=process_zip)
+        
+        if file_result:
+            return file_result, info
     
-    return None, info
+    return {'file_path': None, 'is_from_zip': False, 'zip_path': None, 'file_in_zip': None, 'temp_dir': None}, info
+
+
+def _process_file_selection(file_path: str, exclude_prefix: str, keywords: List[str], is_zip_check: bool = True) -> Optional[Dict]:
+    """
+    Processa a seleção de um arquivo, verificando se é ZIP e extraindo se necessário.
+    
+    Args:
+        file_path: Caminho do arquivo selecionado
+        exclude_prefix: Prefixo a ser excluído
+        keywords: Lista de palavras-chave para filtrar
+        is_zip_check: Se True, verifica se é ZIP e processa
+        
+    Returns:
+        Dicionário com informações do arquivo ou None se não for válido
+    """
+    # Se não for ZIP ou não devemos verificar, retorna arquivo normal
+    if not is_zip_check or not file_path.lower().endswith('.zip'):
+        return {
+            'file_path': file_path,
+            'is_from_zip': False,
+            'zip_path': None,
+            'file_in_zip': None,
+            'temp_dir': None
+        }
+    
+    # É um arquivo ZIP, processa
+    print(f"Arquivo ZIP detectado: {os.path.basename(file_path)}")
+    print("Explorando conteúdo do ZIP...")
+    
+    files_in_zip = list_files_in_zip(file_path, exclude_prefix, keywords)
+    
+    if not files_in_zip:
+        if keywords:
+            print(f"Nenhum arquivo válido encontrado no ZIP com as palavras-chave especificadas.")
+        else:
+            print(f"Nenhum arquivo válido encontrado no ZIP.")
+        # Retorna o próprio ZIP
+        return {
+            'file_path': file_path,
+            'is_from_zip': False,
+            'zip_path': None,
+            'file_in_zip': None,
+            'temp_dir': None
+        }
+    
+    # Seleciona aleatoriamente um arquivo do ZIP
+    selected_file_in_zip = random.choice(files_in_zip)
+    print(f"Arquivo selecionado do ZIP: {os.path.basename(selected_file_in_zip)}")
+    
+    # Cria diretório temporário
+    temp_dir = get_temp_extraction_dir()
+    
+    try:
+        # Extrai o arquivo
+        print(f"Extraindo para pasta temporária...")
+        extracted_path = extract_file_from_zip(file_path, selected_file_in_zip, temp_dir)
+        
+        return {
+            'file_path': extracted_path,
+            'is_from_zip': True,
+            'zip_path': file_path,
+            'file_in_zip': selected_file_in_zip,
+            'temp_dir': temp_dir
+        }
+    except Exception as e:
+        print(f"Erro ao extrair arquivo do ZIP: {e}")
+        # Retorna o próprio ZIP em caso de erro
+        return {
+            'file_path': file_path,
+            'is_from_zip': False,
+            'zip_path': None,
+            'file_in_zip': None,
+            'temp_dir': None
+        }

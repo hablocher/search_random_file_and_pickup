@@ -153,6 +153,13 @@ class RandomFilePickerGUI:
                                                   variable=self.use_sequence_var)
         self.use_sequence_check.grid(row=6, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
         
+        # Checkbox para processar arquivos ZIP
+        self.process_zip_var = tk.BooleanVar(value=True)
+        self.process_zip_check = ttk.Checkbutton(options_frame, 
+                                                 text="Processar arquivos ZIP (buscar dentro de arquivos compactados)",
+                                                 variable=self.process_zip_var)
+        self.process_zip_check.grid(row=7, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
+        
         # Botão de execução
         button_frame = ttk.Frame(main_frame)
         button_frame.grid(row=3, column=0, columnspan=2, pady=(0, 10))
@@ -285,7 +292,8 @@ class RandomFilePickerGUI:
             "open_file": self.open_file_var.get(),
             "use_sequence": self.use_sequence_var.get(),
             "history_limit": self.history_limit_var.get(),
-            "keywords": self.get_keywords_list()
+            "keywords": self.get_keywords_list(),
+            "process_zip": self.process_zip_var.get()
         }
     
     def store_initial_config(self):
@@ -324,6 +332,7 @@ class RandomFilePickerGUI:
         self.use_sequence_var.trace_add('write', lambda *args: self.check_config_changed())
         self.history_limit_var.trace_add('write', lambda *args: self._on_history_limit_changed())
         self.keywords_var.trace_add('write', lambda *args: self.check_config_changed())
+        self.process_zip_var.trace_add('write', lambda *args: self.check_config_changed())
     
     def setup_keyboard_shortcuts(self):
         """Configura atalhos de teclado."""
@@ -507,13 +516,15 @@ class RandomFilePickerGUI:
         thread = threading.Thread(target=self._execute_selection_thread, 
                                  args=(folders, self.exclude_prefix_var.get(), 
                                        self.open_folder_var.get(), self.open_file_var.get(),
-                                       self.use_sequence_var.get(), keywords))
+                                       self.use_sequence_var.get(), keywords, 
+                                       self.process_zip_var.get()))
         thread.daemon = True
         thread.start()
         
     def _execute_selection_thread(self, folders, exclude_prefix, open_folder_after, 
-                                  open_file_after, use_sequence, keywords):
+                                  open_file_after, use_sequence, keywords, process_zip):
         """Executa a seleção em uma thread separada."""
+        temp_dir_to_cleanup = None
         try:
             self.log_message("=" * 70)
             self.log_message("Iniciando busca de arquivos...", "info")
@@ -521,6 +532,7 @@ class RandomFilePickerGUI:
             self.log_message(f"Prefixo de arquivo lido: {exclude_prefix}", "info")
             self.log_message(f"Ignorando pastas com prefixo: .", "info")
             self.log_message(f"Seleção sequencial: {'Ativada' if use_sequence else 'Desativada'}", "info")
+            self.log_message(f"Processar arquivos ZIP: {'Ativado' if process_zip else 'Desativado'}", "info")
             
             if keywords:
                 self.log_message(f"Palavras-chave: {', '.join(keywords)}", "info")
@@ -533,14 +545,23 @@ class RandomFilePickerGUI:
             
             # Usa lógica sequencial ou aleatória conforme configuração
             if use_sequence:
-                selected_file, selection_info = select_file_with_sequence_logic(
-                    folders, exclude_prefix, use_sequence=True, keywords=keywords
+                file_result, selection_info = select_file_with_sequence_logic(
+                    folders, exclude_prefix, use_sequence=True, keywords=keywords, process_zip=process_zip
                 )
                 
-                if not selected_file:
+                if not file_result or not file_result['file_path']:
                     if keywords:
                         raise ValueError(f"Nenhum arquivo válido encontrado com as palavras-chave: {', '.join(keywords)}")
                     raise ValueError("Nenhum arquivo válido encontrado nas pastas informadas.")
+                
+                selected_file = file_result['file_path']
+                temp_dir_to_cleanup = file_result.get('temp_dir')
+                
+                # Log informações sobre ZIP se aplicável
+                if file_result['is_from_zip']:
+                    self.log_message(f"\n✓ Arquivo extraído de ZIP!", "success")
+                    self.log_message(f"  ZIP origem: {os.path.basename(file_result['zip_path'])}", "info")
+                    self.log_message(f"  Arquivo no ZIP: {os.path.basename(file_result['file_in_zip'])}", "info")
                 
                 # Log informações sobre a seleção
                 if selection_info['sequence_detected']:
@@ -554,36 +575,54 @@ class RandomFilePickerGUI:
                 else:
                     self.log_message(f"\nNenhuma sequência detectada - seleção aleatória", "info")
             else:
-                # Modo aleatório tradicional - mas verifica se faz parte de sequência
-                selected_file = pick_random_file(folders, exclude_prefix, check_accessibility=False, keywords=keywords)
+                # Modo aleatório tradicional com suporte a ZIP
+                from random_file_picker import pick_random_file_with_zip_support
+                file_result = pick_random_file_with_zip_support(folders, exclude_prefix, check_accessibility=False, keywords=keywords, process_zip=process_zip)
+                
+                if not file_result or not file_result['file_path']:
+                    if keywords:
+                        raise ValueError(f"Nenhum arquivo válido encontrado com as palavras-chave: {', '.join(keywords)}")
+                    raise ValueError("Nenhum arquivo válido encontrado nas pastas informadas.")
+                
+                selected_file = file_result['file_path']
+                temp_dir_to_cleanup = file_result.get('temp_dir')
+                
                 self.log_message(f"\nMétodo: Seleção Aleatória", "info")
                 
-                # Verifica se o arquivo aleatório faz parte de uma sequência
-                file_folder = Path(selected_file).parent
-                sequences = analyze_folder_sequence(file_folder, exclude_prefix, keywords)
+                # Log informações sobre ZIP se aplicável
+                if file_result['is_from_zip']:
+                    self.log_message(f"\n✓ Arquivo extraído de ZIP!", "success")
+                    self.log_message(f"  ZIP origem: {os.path.basename(file_result['zip_path'])}", "info")
+                    self.log_message(f"  Arquivo no ZIP: {os.path.basename(file_result['file_in_zip'])}", "info")
                 
-                if sequences:
-                    # Arquivo faz parte de uma sequência
-                    tracker = SequentialFileTracker()
-                    result = get_next_unread_file(sequences, tracker, keywords)
+                # Verifica se o arquivo aleatório faz parte de uma sequência
+                # (mas só se não veio de um ZIP, pois ZIPs já foram processados)
+                if not file_result['is_from_zip']:
+                    file_folder = Path(selected_file).parent
+                    sequences = analyze_folder_sequence(file_folder, exclude_prefix, keywords)
                     
-                    if result:
-                        next_file, selected_sequence, file_info = result
-                        self.log_message(f"\n✓ Arquivo aleatório faz parte de uma sequência!", "success")
-                        self.log_message(f"  Selecionando primeiro arquivo não lido da sequência", "info")
-                        self.log_message(f"  Coleção: {selected_sequence['collection']}", "info")
-                        self.log_message(f"  Tipo de ordenação: {selected_sequence['type']}", "info")
-                        self.log_message(f"  Total de arquivos na sequência: {selected_sequence['count']}", "info")
-                        if file_info['number']:
-                            self.log_message(f"  Número do arquivo: {file_info['number']}", "info")
+                    if sequences:
+                        # Arquivo faz parte de uma sequência
+                        tracker = SequentialFileTracker()
+                        result = get_next_unread_file(sequences, tracker, keywords)
                         
-                        # Substitui pelo primeiro não lido da sequência
-                        selected_file = next_file
-                        tracker.mark_as_read(selected_file)
+                        if result:
+                            next_file, selected_sequence, file_info = result
+                            self.log_message(f"\n✓ Arquivo aleatório faz parte de uma sequência!", "success")
+                            self.log_message(f"  Selecionando primeiro arquivo não lido da sequência", "info")
+                            self.log_message(f"  Coleção: {selected_sequence['collection']}", "info")
+                            self.log_message(f"  Tipo de ordenação: {selected_sequence['type']}", "info")
+                            self.log_message(f"  Total de arquivos na sequência: {selected_sequence['count']}", "info")
+                            if file_info['number']:
+                                self.log_message(f"  Número do arquivo: {file_info['number']}", "info")
+                            
+                            # Substitui pelo primeiro não lido da sequência
+                            selected_file = next_file
+                            tracker.mark_as_read(selected_file)
+                        else:
+                            self.log_message(f"\nArquivo faz parte de sequência, mas todos já foram lidos", "info")
                     else:
-                        self.log_message(f"\nArquivo faz parte de sequência, mas todos já foram lidos", "info")
-                else:
-                    self.log_message(f"\nArquivo isolado (não faz parte de sequência)", "info")
+                        self.log_message(f"\nArquivo isolado (não faz parte de sequência)", "info")
             
             elapsed_time = time.time() - start_time
             
@@ -612,15 +651,18 @@ class RandomFilePickerGUI:
                 default_app = self._get_default_app(selected_file)
                 self.log_message(f"\nAplicativo padrão: {default_app}", "info")
             
-            # Adiciona ao histórico
-            self.root.after(0, lambda: self.add_to_history(selected_file))
+            # Adiciona ao histórico (usa o arquivo original do ZIP se aplicável)
+            history_file = file_result.get('zip_path') if file_result.get('is_from_zip') else selected_file
+            self.root.after(0, lambda: self.add_to_history(history_file))
             
             status_parts = []
             
             # Abre a pasta apenas se a opção estiver marcada
             if open_folder_after:
                 self.log_message("\nAbrindo pasta no explorador...", "info")
-                open_folder(selected_file)
+                # Se veio de ZIP, abre a pasta do ZIP, não a temporária
+                folder_to_open = file_result.get('zip_path', selected_file) if file_result.get('is_from_zip') else selected_file
+                open_folder(folder_to_open)
                 status_parts.append("pasta aberta")
             else:
                 self.log_message("\nPasta não aberta (opção desmarcada)", "info")
@@ -663,6 +705,12 @@ class RandomFilePickerGUI:
             self.root.after(0, lambda: self.status_var.set("Erro inesperado"))
             
         finally:
+            # Limpa diretório temporário se foi criado
+            if temp_dir_to_cleanup:
+                from random_file_picker import cleanup_temp_dir
+                self.log_message("\nLimpando arquivos temporários...", "info")
+                cleanup_temp_dir(temp_dir_to_cleanup)
+            
             self.is_running = False
             self.root.after(0, lambda: self.execute_btn.configure(state='normal'))
             self.root.after(0, self.update_save_button_state)
@@ -719,6 +767,10 @@ class RandomFilePickerGUI:
             # Restaurar preferência de seleção sequencial
             use_sequence = config.get("use_sequence", True)
             self.use_sequence_var.set(use_sequence)
+            
+            # Restaurar preferência de processar ZIP
+            process_zip = config.get("process_zip", True)
+            self.process_zip_var.set(process_zip)
             
             # Restaurar palavras-chave
             keywords = config.get("keywords", "")

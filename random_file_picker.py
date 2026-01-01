@@ -3,8 +3,11 @@ import random
 import subprocess
 import platform
 from pathlib import Path
-from typing import List
+from typing import List, Tuple, Optional
 import time
+import zipfile
+import tempfile
+import shutil
 
 
 def is_file_accessible(file_path: Path) -> bool:
@@ -34,6 +37,108 @@ def is_file_accessible(file_path: Path) -> bool:
         return True
     except (OSError, PermissionError, FileNotFoundError):
         return False
+
+
+def list_files_in_zip(zip_path: str, exclude_prefix: str = "_L_", keywords: List[str] = None) -> List[str]:
+    """
+    Lista todos os arquivos dentro de um arquivo ZIP, aplicando filtros.
+    
+    Args:
+        zip_path: Caminho do arquivo ZIP
+        exclude_prefix: Prefixo a ser excluído dos resultados
+        keywords: Lista de palavras-chave para filtrar arquivos
+        
+    Returns:
+        Lista com os nomes dos arquivos válidos dentro do ZIP
+    """
+    valid_files = []
+    
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zip_file:
+            for file_info in zip_file.filelist:
+                # Ignora diretórios
+                if file_info.is_dir():
+                    continue
+                
+                file_name = os.path.basename(file_info.filename)
+                
+                # Verifica prefixo
+                if file_name.startswith(exclude_prefix):
+                    continue
+                
+                # Ignora pastas ocultas (com '.')
+                path_parts = file_info.filename.split('/')
+                if any(part.startswith('.') for part in path_parts[:-1]):
+                    continue
+                
+                # Filtra por palavras-chave se fornecidas
+                if keywords:
+                    file_name_lower = file_name.lower()
+                    if not any(keyword in file_name_lower for keyword in keywords):
+                        continue
+                
+                valid_files.append(file_info.filename)
+    
+    except (zipfile.BadZipFile, FileNotFoundError, PermissionError) as e:
+        print(f"Erro ao acessar ZIP '{zip_path}': {e}")
+        return []
+    
+    return valid_files
+
+
+def extract_file_from_zip(zip_path: str, file_in_zip: str, temp_dir: str = None) -> str:
+    """
+    Extrai um arquivo específico de um ZIP para uma pasta temporária.
+    
+    Args:
+        zip_path: Caminho do arquivo ZIP
+        file_in_zip: Nome do arquivo dentro do ZIP
+        temp_dir: Diretório temporário (se None, cria um novo)
+        
+    Returns:
+        Caminho completo do arquivo extraído
+        
+    Raises:
+        Exception: Se houver erro na extração
+    """
+    try:
+        # Cria diretório temporário se não fornecido
+        if temp_dir is None:
+            temp_dir = tempfile.mkdtemp(prefix="zip_extract_")
+        
+        # Abre o ZIP e extrai o arquivo
+        with zipfile.ZipFile(zip_path, 'r') as zip_file:
+            # Extrai o arquivo
+            extracted_path = zip_file.extract(file_in_zip, temp_dir)
+            return extracted_path
+    
+    except Exception as e:
+        raise Exception(f"Erro ao extrair arquivo do ZIP: {e}")
+
+
+def get_temp_extraction_dir() -> str:
+    """
+    Cria e retorna o caminho de um diretório temporário para extração de ZIPs.
+    
+    Returns:
+        Caminho do diretório temporário criado
+    """
+    return tempfile.mkdtemp(prefix="random_file_picker_")
+
+
+def cleanup_temp_dir(temp_dir: str):
+    """
+    Remove um diretório temporário e todo seu conteúdo.
+    
+    Args:
+        temp_dir: Caminho do diretório a ser removido
+    """
+    try:
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
+    except Exception as e:
+        print(f"Aviso: Não foi possível remover diretório temporário '{temp_dir}': {e}")
+
 
 
 def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessibility: bool = False, keywords: List[str] = None) -> List[str]:
@@ -164,6 +269,35 @@ def pick_random_file(folders: List[str], exclude_prefix: str = "_L_", check_acce
     Raises:
         ValueError: Se nenhum arquivo válido for encontrado
     """
+    result = pick_random_file_with_zip_support(folders, exclude_prefix, check_accessibility, keywords)
+    return result['file_path']
+
+
+def pick_random_file_with_zip_support(folders: List[str], exclude_prefix: str = "_L_", 
+                                       check_accessibility: bool = False, 
+                                       keywords: List[str] = None, process_zip: bool = True) -> dict:
+    """
+    Seleciona aleatoriamente um arquivo das pastas informadas, com suporte a arquivos ZIP.
+    Se um arquivo ZIP for selecionado, continua a busca dentro do ZIP.
+    
+    Args:
+        folders: Lista de caminhos das pastas para buscar
+        exclude_prefix: Prefixo a ser excluído dos resultados
+        check_accessibility: Se True, verifica se arquivos estão acessíveis localmente
+        keywords: Lista de palavras-chave para filtrar arquivos
+        process_zip: Se True, processa arquivos ZIP; se False, trata ZIPs como arquivos normais
+        
+    Returns:
+        Dicionário com:
+            - file_path: Caminho do arquivo selecionado (extraído se veio de ZIP)
+            - is_from_zip: True se o arquivo veio de um ZIP
+            - zip_path: Caminho do ZIP original (se is_from_zip for True)
+            - file_in_zip: Nome do arquivo dentro do ZIP (se is_from_zip for True)
+            - temp_dir: Diretório temporário usado (se is_from_zip for True)
+        
+    Raises:
+        ValueError: Se nenhum arquivo válido for encontrado
+    """
     valid_files = collect_files(folders, exclude_prefix, check_accessibility, keywords)
     
     if not valid_files:
@@ -177,8 +311,64 @@ def pick_random_file(folders: List[str], exclude_prefix: str = "_L_", check_acce
     # Embaralha a lista para aumentar a aleatoriedade
     secure_random.shuffle(valid_files)
     
-    # Seleciona um índice aleatório
-    return secure_random.choice(valid_files)
+    # Seleciona um arquivo aleatório
+    selected_file = secure_random.choice(valid_files)
+    
+    # Verifica se é um arquivo ZIP e se deve processá-lo
+    if process_zip and selected_file.lower().endswith('.zip'):
+        print(f"Arquivo ZIP detectado: {os.path.basename(selected_file)}")
+        print("Explorando conteúdo do ZIP...")
+        
+        # Lista arquivos dentro do ZIP
+        files_in_zip = list_files_in_zip(selected_file, exclude_prefix, keywords)
+        
+        if not files_in_zip:
+            if keywords:
+                print(f"Nenhum arquivo válido encontrado no ZIP com as palavras-chave especificadas.")
+            else:
+                print(f"Nenhum arquivo válido encontrado no ZIP.")
+            # Retorna o próprio ZIP se não houver arquivos válidos dentro
+            return {
+                'file_path': selected_file,
+                'is_from_zip': False,
+                'zip_path': None,
+                'file_in_zip': None,
+                'temp_dir': None
+            }
+        
+        # Seleciona aleatoriamente um arquivo do ZIP
+        selected_file_in_zip = secure_random.choice(files_in_zip)
+        print(f"Arquivo selecionado do ZIP: {os.path.basename(selected_file_in_zip)}")
+        
+        # Cria diretório temporário
+        temp_dir = get_temp_extraction_dir()
+        
+        try:
+            # Extrai o arquivo
+            print(f"Extraindo para pasta temporária...")
+            extracted_path = extract_file_from_zip(selected_file, selected_file_in_zip, temp_dir)
+            
+            return {
+                'file_path': extracted_path,
+                'is_from_zip': True,
+                'zip_path': selected_file,
+                'file_in_zip': selected_file_in_zip,
+                'temp_dir': temp_dir
+            }
+        except Exception as e:
+            # Limpa o diretório temporário em caso de erro
+            cleanup_temp_dir(temp_dir)
+            raise
+    
+    # Arquivo normal (não-ZIP)
+    return {
+        'file_path': selected_file,
+        'is_from_zip': False,
+        'zip_path': None,
+        'file_in_zip': None,
+        'temp_dir': None
+    }
+
 
 
 def main():
