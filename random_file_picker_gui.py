@@ -116,26 +116,38 @@ class RandomFilePickerGUI:
                               font=('Arial', 8, 'italic'))
         info_label.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
         
+        # Campo para palavras-chave
+        ttk.Label(options_frame, text="Palavras-chave (máx. 3, separadas por vírgula):").grid(
+            row=1, column=2, columnspan=2, sticky=tk.W, padx=(20, 5), pady=(5, 0))
+        self.keywords_var = tk.StringVar(value="")
+        self.keywords_entry = ttk.Entry(options_frame, textvariable=self.keywords_var, width=40)
+        self.keywords_entry.grid(row=2, column=2, columnspan=2, sticky=(tk.W, tk.E), padx=(20, 0))
+        
+        keywords_info = ttk.Label(options_frame,
+                                 text="(Arquivo deve conter TODAS as palavras-chave no nome)",
+                                 font=('Arial', 8, 'italic'))
+        keywords_info.grid(row=3, column=2, columnspan=2, sticky=tk.W, padx=(20, 0))
+        
         # Checkbox para abrir pasta
         self.open_folder_var = tk.BooleanVar(value=True)
         self.open_folder_check = ttk.Checkbutton(options_frame, 
                                                  text="Abrir pasta automaticamente após seleção",
                                                  variable=self.open_folder_var)
-        self.open_folder_check.grid(row=2, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
+        self.open_folder_check.grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(10, 0))
         
         # Checkbox para abrir arquivo
         self.open_file_var = tk.BooleanVar(value=False)
         self.open_file_check = ttk.Checkbutton(options_frame, 
                                                text="Abrir arquivo automaticamente após seleção",
                                                variable=self.open_file_var)
-        self.open_file_check.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
+        self.open_file_check.grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
         
         # Checkbox para usar seleção sequencial
         self.use_sequence_var = tk.BooleanVar(value=True)
         self.use_sequence_check = ttk.Checkbutton(options_frame, 
                                                   text="Usar seleção sequencial (detecta ordenação em pastas)",
                                                   variable=self.use_sequence_var)
-        self.use_sequence_check.grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
+        self.use_sequence_check.grid(row=6, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
         
         # Botão de execução
         button_frame = ttk.Frame(main_frame)
@@ -246,6 +258,16 @@ class RandomFilePickerGUI:
         folders = [line.strip() for line in text.split("\n") if line.strip()]
         return folders
     
+    def get_keywords_list(self):
+        """Retorna a lista de palavras-chave (máximo 3)."""
+        text = self.keywords_var.get().strip()
+        if not text:
+            return []
+        # Separa por vírgula e limpa espaços
+        keywords = [kw.strip().lower() for kw in text.split(",") if kw.strip()]
+        # Limita a 3 palavras-chave
+        return keywords[:3]
+    
     def get_current_config(self):
         """Retorna a configuração atual."""
         return {
@@ -254,7 +276,8 @@ class RandomFilePickerGUI:
             "open_folder": self.open_folder_var.get(),
             "open_file": self.open_file_var.get(),
             "use_sequence": self.use_sequence_var.get(),
-            "history_limit": self.history_limit_var.get()
+            "history_limit": self.history_limit_var.get(),
+            "keywords": self.get_keywords_list()
         }
     
     def store_initial_config(self):
@@ -292,6 +315,7 @@ class RandomFilePickerGUI:
         self.open_file_var.trace_add('write', lambda *args: self.check_config_changed())
         self.use_sequence_var.trace_add('write', lambda *args: self.check_config_changed())
         self.history_limit_var.trace_add('write', lambda *args: self._on_history_limit_changed())
+        self.keywords_var.trace_add('write', lambda *args: self.check_config_changed())
     
     def _on_folders_modified(self, event):
         """Callback para quando o texto de pastas é modificado."""
@@ -451,15 +475,17 @@ class RandomFilePickerGUI:
         self.status_var.set("Buscando arquivos...")
         self.clear_log()
         
+        keywords = self.get_keywords_list()
+        
         thread = threading.Thread(target=self._execute_selection_thread, 
                                  args=(folders, self.exclude_prefix_var.get(), 
                                        self.open_folder_var.get(), self.open_file_var.get(),
-                                       self.use_sequence_var.get()))
+                                       self.use_sequence_var.get(), keywords))
         thread.daemon = True
         thread.start()
         
     def _execute_selection_thread(self, folders, exclude_prefix, open_folder_after, 
-                                  open_file_after, use_sequence):
+                                  open_file_after, use_sequence, keywords):
         """Executa a seleção em uma thread separada."""
         try:
             self.log_message("=" * 70)
@@ -468,6 +494,12 @@ class RandomFilePickerGUI:
             self.log_message(f"Prefixo de arquivo lido: {exclude_prefix}", "info")
             self.log_message(f"Ignorando pastas com prefixo: .", "info")
             self.log_message(f"Seleção sequencial: {'Ativada' if use_sequence else 'Desativada'}", "info")
+            
+            if keywords:
+                self.log_message(f"Palavras-chave: {', '.join(keywords)}", "info")
+            else:
+                self.log_message("Palavras-chave: Nenhuma (todos os arquivos são elegíveis)", "info")
+            
             self.log_message("=" * 70)
             
             start_time = time.time()
@@ -475,10 +507,12 @@ class RandomFilePickerGUI:
             # Usa lógica sequencial ou aleatória conforme configuração
             if use_sequence:
                 selected_file, selection_info = select_file_with_sequence_logic(
-                    folders, exclude_prefix, use_sequence=True
+                    folders, exclude_prefix, use_sequence=True, keywords=keywords
                 )
                 
                 if not selected_file:
+                    if keywords:
+                        raise ValueError(f"Nenhum arquivo válido encontrado com as palavras-chave: {', '.join(keywords)}")
                     raise ValueError("Nenhum arquivo válido encontrado nas pastas informadas.")
                 
                 # Log informações sobre a seleção
@@ -494,7 +528,7 @@ class RandomFilePickerGUI:
                     self.log_message(f"\nNenhuma sequência detectada - seleção aleatória", "info")
             else:
                 # Modo aleatório tradicional
-                selected_file = pick_random_file(folders, exclude_prefix, check_accessibility=False)
+                selected_file = pick_random_file(folders, exclude_prefix, check_accessibility=False, keywords=keywords)
                 self.log_message(f"\nMétodo: Seleção Aleatória", "info")
             
             elapsed_time = time.time() - start_time
@@ -573,6 +607,7 @@ class RandomFilePickerGUI:
             "open_file": self.open_file_var.get(),
             "use_sequence": self.use_sequence_var.get(),
             "history_limit": int(self.history_limit_var.get()),
+            "keywords": self.keywords_var.get(),
             "file_history": self.file_history
         }
         
@@ -613,6 +648,10 @@ class RandomFilePickerGUI:
             # Restaurar preferência de seleção sequencial
             use_sequence = config.get("use_sequence", True)
             self.use_sequence_var.set(use_sequence)
+            
+            # Restaurar palavras-chave
+            keywords = config.get("keywords", "")
+            self.keywords_var.set(keywords)
             
             # Restaurar histórico de arquivos
             self.file_history = config.get("file_history", [])

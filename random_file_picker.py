@@ -36,7 +36,7 @@ def is_file_accessible(file_path: Path) -> bool:
         return False
 
 
-def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessibility: bool = False) -> List[str]:
+def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessibility: bool = False, keywords: List[str] = None) -> List[str]:
     """
     Coleta todos os arquivos das pastas e subpastas informadas,
     excluindo arquivos que começam com o prefixo especificado.
@@ -47,6 +47,8 @@ def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessi
         folders: Lista de caminhos das pastas para buscar
         exclude_prefix: Prefixo a ser excluído dos resultados
         check_accessibility: Se True, verifica se arquivos estão acessíveis localmente
+        keywords: Lista de palavras-chave. Se fornecida, apenas arquivos que contenham
+                 ao menos uma palavra-chave no nome serão incluídos.
         
     Returns:
         Lista com os caminhos completos dos arquivos válidos
@@ -82,6 +84,13 @@ def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessi
                     # Verifica se o nome do arquivo não começa com o prefixo
                     if file_path.name.startswith(exclude_prefix):
                         continue
+                    
+                    # Filtra por palavras-chave se fornecidas
+                    if keywords:
+                        file_name_lower = file_path.name.lower()
+                        # Verifica se TODAS as palavras-chave estão no nome do arquivo
+                        if not all(keyword in file_name_lower for keyword in keywords):
+                            continue
                     
                     # Verifica acessibilidade apenas se solicitado
                     if check_accessibility:
@@ -137,7 +146,7 @@ def open_folder(file_path: str):
         print(f"Erro ao abrir pasta: {e}")
 
 
-def pick_random_file(folders: List[str], exclude_prefix: str = "_L_", check_accessibility: bool = False) -> str:
+def pick_random_file(folders: List[str], exclude_prefix: str = "_L_", check_accessibility: bool = False, keywords: List[str] = None) -> str:
     """
     Seleciona aleatoriamente um arquivo das pastas informadas
     usando um gerador de números aleatórios criptograficamente seguro.
@@ -147,6 +156,7 @@ def pick_random_file(folders: List[str], exclude_prefix: str = "_L_", check_acce
         folders: Lista de caminhos das pastas para buscar
         exclude_prefix: Prefixo a ser excluído dos resultados
         check_accessibility: Se True, verifica se arquivos estão acessíveis localmente
+        keywords: Lista de palavras-chave para filtrar arquivos
         
     Returns:
         Caminho completo do arquivo selecionado
@@ -154,9 +164,11 @@ def pick_random_file(folders: List[str], exclude_prefix: str = "_L_", check_acce
     Raises:
         ValueError: Se nenhum arquivo válido for encontrado
     """
-    valid_files = collect_files(folders, exclude_prefix, check_accessibility)
+    valid_files = collect_files(folders, exclude_prefix, check_accessibility, keywords)
     
     if not valid_files:
+        if keywords:
+            raise ValueError(f"Nenhum arquivo válido encontrado com as palavras-chave: {', '.join(keywords)}")
         raise ValueError("Nenhum arquivo válido encontrado nas pastas informadas.")
     
     # Usa SystemRandom para maior aleatoriedade

@@ -323,7 +323,7 @@ def get_next_unread_file(sequences: List[Dict], tracker: SequentialFileTracker) 
 
 
 def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_L_", 
-                                    use_sequence: bool = True) -> Tuple[Optional[str], Dict]:
+                                    use_sequence: bool = True, keywords: List[str] = None) -> Tuple[Optional[str], Dict]:
     """
     Seleciona um arquivo considerando lógica de sequência.
     
@@ -331,6 +331,7 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
         folders: Lista de pastas para buscar
         exclude_prefix: Prefixo de arquivos a ignorar
         use_sequence: Se True, usa lógica de sequência quando detectada
+        keywords: Lista de palavras-chave para filtrar arquivos
         
     Returns:
         Tupla (caminho do arquivo, informações sobre a seleção)
@@ -406,6 +407,13 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
                 
                 if file_path.name.startswith(exclude_prefix):
                     continue
+                
+                # Filtra por palavras-chave se fornecidas
+                if keywords:
+                    file_name_lower = file_path.name.lower()
+                    # Verifica se TODAS as palavras-chave estão no nome do arquivo
+                    if not all(keyword in file_name_lower for keyword in keywords):
+                        continue
                 
                 all_files.append(str(file_path))
         except (OSError, PermissionError):
