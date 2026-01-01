@@ -30,6 +30,7 @@ class RandomFilePickerGUI:
         self.load_config()
         self.store_initial_config()
         self.setup_change_tracking()
+        self.setup_keyboard_shortcuts()
         
         # Configura handler para fechar a janela
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -57,9 +58,10 @@ class RandomFilePickerGUI:
         folders_frame.columnconfigure(0, weight=1)
         folders_frame.rowconfigure(0, weight=1)
         
-        # Lista de pastas (ScrolledText)
+        # Lista de pastas (ScrolledText) - Read-only
         self.folders_text = scrolledtext.ScrolledText(folders_frame, height=8, width=60, 
-                                                      font=('Consolas', 9))
+                                                      font=('Consolas', 9), takefocus=0,
+                                                      state='disabled', cursor='arrow')
         self.folders_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
         
         # Frame para botões de pastas
@@ -240,16 +242,20 @@ class RandomFilePickerGUI:
         """Abre diálogo para adicionar uma pasta."""
         folder = filedialog.askdirectory(title="Selecione uma pasta para buscar")
         if folder:
+            self.folders_text.config(state='normal')
             current_text = self.folders_text.get("1.0", tk.END).strip()
             if current_text:
                 self.folders_text.insert(tk.END, "\n" + folder)
             else:
                 self.folders_text.insert(tk.END, folder)
+            self.folders_text.config(state='disabled')
             self.log_message(f"Pasta adicionada: {folder}", "info")
             
     def clear_folders(self):
         """Limpa a lista de pastas."""
+        self.folders_text.config(state='normal')
         self.folders_text.delete("1.0", tk.END)
+        self.folders_text.config(state='disabled')
         self.log_message("Lista de pastas limpa", "info")
         
     def get_folders_list(self):
@@ -318,6 +324,16 @@ class RandomFilePickerGUI:
         self.use_sequence_var.trace_add('write', lambda *args: self.check_config_changed())
         self.history_limit_var.trace_add('write', lambda *args: self._on_history_limit_changed())
         self.keywords_var.trace_add('write', lambda *args: self.check_config_changed())
+    
+    def setup_keyboard_shortcuts(self):
+        """Configura atalhos de teclado."""
+        # Bind Enter para executar a seleção
+        self.root.bind('<Return>', lambda event: self.execute_selection())
+        
+        # Tab já funciona por padrão no tkinter para navegação entre campos
+        # Mas vamos garantir que os widgets principais estejam na ordem correta de focus
+        # A ordem natural é: folders_text -> exclude_prefix_entry -> history_limit_spinbox 
+        # -> keywords_entry -> checkboxes -> execute_btn -> save_config_btn
     
     def _on_folders_modified(self, event):
         """Callback para quando o texto de pastas é modificado."""
@@ -683,7 +699,9 @@ class RandomFilePickerGUI:
             # Restaurar pastas
             folders = config.get("folders", [])
             if folders:
+                self.folders_text.config(state='normal')
                 self.folders_text.insert("1.0", "\n".join(folders))
+                self.folders_text.config(state='disabled')
                 self.log_message(f"Configuração carregada: {len(folders)} pasta(s)", "success")
                 
             # Restaurar prefixo

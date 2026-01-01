@@ -10,7 +10,8 @@ Programa Python com interface gráfica que seleciona arquivos de forma inteligen
 - **Log detalhado** de todas as operações realizadas
 - **Histórico persistente** dos últimos arquivos selecionados (configurável de 1 a 50)
 - **Barras de rolagem** nas áreas de opções e histórico para melhor navegação
-- **Filtragem por palavras-chave** (até 3 palavras, operação AND)
+- **Filtragem por palavras-chave** (até 3 palavras, operação OR - ao menos uma deve estar presente)
+- **Atalhos de teclado** para produtividade (Enter para buscar, Tab para navegar)
 
 ### Seleção Inteligente de Arquivos
 - **Seleção Sequencial**: Detecta automaticamente arquivos numerados e seleciona o próximo não lido
@@ -29,6 +30,7 @@ Programa Python com interface gráfica que seleciona arquivos de forma inteligen
 ### Automação
 - **Abrir pasta automaticamente** após seleção (opcional)
 - **Abrir arquivo automaticamente** com o aplicativo padrão (opcional)
+- **Detecção de aplicativos**: Biblioteca específica por SO (Windows/Linux) que identifica aplicativo associado ao tipo de arquivo
 - **Persistência de configurações**: Todas as preferências são salvas automaticamente
 - **Detecção de mudanças**: Alerta se há configurações não salvas ao fechar
 
@@ -112,7 +114,10 @@ tracker.clear_folder(r"C:\Comics")
 
 ### Áreas da Interface
 
-1. **Pastas para buscar**: Lista de pastas onde os arquivos serão procurados
+1. **Pastas para buscar** (read-only): 
+   - Lista de pastas onde os arquivos serão procurados
+   - Só pode ser modificada pelos botões "Adicionar Pasta" e "Limpar Tudo"
+   - Não recebe foco com Tab (pula para os próximos campos)
 2. **Opções** (com scroll):
    - Prefixo de arquivo lido (padrão: `_L_`)
    - Limite de histórico (1-50 arquivos)
@@ -123,7 +128,12 @@ tracker.clear_folder(r"C:\Comics")
 3. **Log / Resultado**: Exibe informações detalhadas sobre a busca e seleção
 4. **Últimos Arquivos Selecionados** (com scroll): Histórico clicável dos arquivos recentes
 
-### Atalhos e Funcionalidades
+### Atalhos de Teclado
+
+- **Enter**: Inicia a busca de arquivo aleatório
+- **Tab**: Navega entre os campos editáveis (pula a caixa de pastas)
+
+### Funcionalidades
 
 - **Botão "Selecionar Arquivo Aleatório"**: Executa a busca e seleção
 - **Botão "Salvar Configuração"**: Ativado apenas quando há mudanças não salvas
@@ -134,6 +144,33 @@ tracker.clear_folder(r"C:\Comics")
   - Deixe vazio para buscar todos os arquivos
 - **Detecção de mudanças**: A barra de status indica quando há configurações não salvas
 - **Confirmação ao fechar**: Pergunta se deseja salvar antes de sair
+
+## 🏗️ Arquitetura
+
+### Módulos Principais
+
+- **random_file_picker_gui.py**: Interface gráfica principal
+- **random_file_picker.py**: Lógica de seleção aleatória de arquivos
+- **sequential_selector.py**: Lógica de detecção e seleção sequencial
+- **system_utils.py**: Interface unificada para detecção de aplicativos
+- **system_utils_windows.py**: Implementação Windows (usa Registry, assoc, ftype)
+- **system_utils_linux.py**: Implementação Linux (usa xdg-mime, gio, .desktop files)
+
+### Detecção de Aplicativos
+
+O sistema detecta automaticamente qual aplicativo abre cada tipo de arquivo:
+
+**Windows**:
+- Usa `assoc` para obter a extensão do arquivo
+- Usa `ftype` para obter o comando associado
+- Consulta o Registry para informações detalhadas
+- Retorna nome, caminho e nome de exibição do aplicativo
+
+**Linux**:
+- Usa `xdg-mime query default` para obter o .desktop file
+- Parseia o arquivo .desktop para extrair informações
+- Usa `which` para localizar o executável
+- Retorna nome, caminho e nome de exibição do aplicativo
 
 ## 📂 Arquivos de Configuração
 
@@ -212,10 +249,6 @@ for seq in sequences:
 ```
 
 ### Exemplo 4: Abrir pasta do arquivo selecionado
-    print(f"Arquivos: {seq['files'][:3]}...")  # Primeiros 3
-```
-
-### Exemplo 3: Abrir pasta do arquivo selecionado
 
 ```python
 from random_file_picker import pick_random_file, open_folder

@@ -394,11 +394,11 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
     # Se usar lógica de sequência, tenta encontrar pastas com sequências e arquivos não lidos
     if use_sequence:
         for folder in folder_list:
-            sequences = analyze_folder_sequence(folder, exclude_prefix)
+            sequences = analyze_folder_sequence(folder, exclude_prefix, keywords)
             
             if sequences:
                 # Há sequências detectadas (pode haver múltiplas coleções)
-                result = get_next_unread_file(sequences, tracker)
+                result = get_next_unread_file(sequences, tracker, keywords)
                 
                 if result:
                     # Encontrou próximo arquivo não lido em alguma coleção
