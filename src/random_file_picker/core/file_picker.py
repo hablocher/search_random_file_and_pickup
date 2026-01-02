@@ -41,7 +41,7 @@ def is_file_accessible(file_path: Path) -> bool:
         return False
 
 
-def list_files_in_zip(zip_path: str, exclude_prefix: str = "_L_", keywords: List[str] = None) -> List[str]:
+def list_files_in_zip(zip_path: str, exclude_prefix: str = "_L_", keywords: List[str] = None, keywords_match_all: bool = False) -> List[str]:
     """
     Lista todos os arquivos dentro de um arquivo ZIP, aplicando filtros.
     
@@ -76,8 +76,14 @@ def list_files_in_zip(zip_path: str, exclude_prefix: str = "_L_", keywords: List
                 # Filtra por palavras-chave se fornecidas
                 if keywords:
                     file_name_lower = file_name.lower()
-                    if not any(keyword in file_name_lower for keyword in keywords):
-                        continue
+                    if keywords_match_all:
+                        # Modo AND: todas as palavras devem estar presentes
+                        if not all(keyword in file_name_lower for keyword in keywords):
+                            continue
+                    else:
+                        # Modo OR: ao menos uma palavra deve estar presente
+                        if not any(keyword in file_name_lower for keyword in keywords):
+                            continue
                 
                 valid_files.append(file_info.filename)
     
@@ -143,7 +149,7 @@ def cleanup_temp_dir(temp_dir: str):
 
 
 
-def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessibility: bool = False, keywords: List[str] = None, use_cache: bool = True, process_zip: bool = False) -> List[str]:
+def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessibility: bool = False, keywords: List[str] = None, use_cache: bool = True, process_zip: bool = False, keywords_match_all: bool = False) -> List[str]:
     """
     Coleta todos os arquivos das pastas e subpastas informadas,
     excluindo arquivos que começam com o prefixo especificado.
@@ -174,7 +180,7 @@ def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessi
     
     # Tenta usar cache se habilitado
     if use_cache and cache_manager.is_cache_valid(
-        folders, exclude_prefix, ".", keywords or [], False
+        folders, exclude_prefix, ".", keywords or [], False, keywords_match_all
     ):
         print("✓ Usando cache de arquivos (busca instantânea)...")
         cached_files = cache_manager.get_cached_files()
@@ -236,9 +242,14 @@ def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessi
                     # Filtra por palavras-chave se fornecidas
                     if keywords:
                         file_name_lower = file_path.name.lower()
-                        # Verifica se ao menos UMA palavra-chave está no nome do arquivo
-                        if not any(keyword in file_name_lower for keyword in keywords):
-                            continue
+                        if keywords_match_all:
+                            # Modo AND: todas as palavras devem estar presentes
+                            if not all(keyword in file_name_lower for keyword in keywords):
+                                continue
+                        else:
+                            # Modo OR: ao menos UMA palavra-chave está no nome do arquivo
+                            if not any(keyword in file_name_lower for keyword in keywords):
+                                continue
                     
                     # Verifica acessibilidade apenas se solicitado
                     if check_accessibility:
@@ -285,7 +296,7 @@ def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessi
             f.write(f"  file_data count={len(file_data)}\n")
         
         success = cache_manager.save_cache(
-            file_data, folders, exclude_prefix, ".", keywords or [], process_zip
+            file_data, folders, exclude_prefix, ".", keywords or [], process_zip, keywords_match_all
         )
         
         # DEBUG
@@ -353,7 +364,7 @@ def pick_random_file(folders: List[str], exclude_prefix: str = "_L_", check_acce
 
 def pick_random_file_with_zip_support(folders: List[str], exclude_prefix: str = "_L_", 
                                        check_accessibility: bool = False, 
-                                       keywords: List[str] = None, process_zip: bool = True,
+                                       keywords: List[str] = None, keywords_match_all: bool = False, process_zip: bool = True,
                                        use_cache: bool = True) -> dict:
     """
     Seleciona aleatoriamente um arquivo das pastas informadas, com suporte a arquivos ZIP.
@@ -378,7 +389,7 @@ def pick_random_file_with_zip_support(folders: List[str], exclude_prefix: str = 
     Raises:
         ValueError: Se nenhum arquivo válido for encontrado
     """
-    valid_files = collect_files(folders, exclude_prefix, check_accessibility, keywords, use_cache, process_zip)
+    valid_files = collect_files(folders, exclude_prefix, check_accessibility, keywords, use_cache, process_zip, keywords_match_all)
     
     if not valid_files:
         if keywords:
@@ -400,7 +411,7 @@ def pick_random_file_with_zip_support(folders: List[str], exclude_prefix: str = 
         print("Explorando conteúdo do ZIP...")
         
         # Lista arquivos dentro do ZIP
-        files_in_zip = list_files_in_zip(selected_file, exclude_prefix, keywords)
+        files_in_zip = list_files_in_zip(selected_file, exclude_prefix, keywords, keywords_match_all)
         
         if not files_in_zip:
             if keywords:

@@ -218,23 +218,31 @@ class RandomFilePickerGUI:
         self.keywords_entry = ttk.Entry(options_frame, textvariable=self.keywords_var, width=40)
         self.keywords_entry.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E))
         
-        keywords_info = ttk.Label(options_frame,
+        # Checkbox para escolher AND/OR
+        self.keywords_match_all_var = tk.BooleanVar(value=False)
+        self.keywords_match_all_check = ttk.Checkbutton(options_frame,
+                                                        text="TODAS as palavras (AND)",
+                                                        variable=self.keywords_match_all_var,
+                                                        command=self._on_keywords_match_changed)
+        self.keywords_match_all_check.grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
+        
+        self.keywords_info = ttk.Label(options_frame,
                                  text="(Arquivo deve conter ao menos UMA das palavras-chave no nome)",
                                  font=('Arial', 8, 'italic'))
-        keywords_info.grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(2, 5))
+        self.keywords_info.grid(row=6, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
         
         # Checkboxes
         self.open_folder_var = tk.BooleanVar(value=False)
         self.open_folder_check = ttk.Checkbutton(options_frame, 
                                                  text="Abrir pasta automaticamente após seleção",
                                                  variable=self.open_folder_var)
-        self.open_folder_check.grid(row=6, column=0, columnspan=2, sticky=tk.W, pady=(5, 2))
+        self.open_folder_check.grid(row=7, column=0, columnspan=2, sticky=tk.W, pady=(5, 2))
         
         self.open_file_var = tk.BooleanVar(value=False)
         self.open_file_check = ttk.Checkbutton(options_frame, 
                                                text="Abrir arquivo automaticamente após seleção",
                                                variable=self.open_file_var)
-        self.open_file_check.grid(row=7, column=0, columnspan=2, sticky=tk.W, pady=2)
+        self.open_file_check.grid(row=8, column=0, columnspan=2, sticky=tk.W, pady=2)
         
         self.use_sequence_var = tk.BooleanVar(value=True)
         self.use_sequence_check = ttk.Checkbutton(options_frame, 
@@ -434,6 +442,7 @@ class RandomFilePickerGUI:
             "use_sequence": self.use_sequence_var.get(),
             "history_limit": self.history_limit_var.get(),
             "keywords": self.get_keywords_list(),
+            "keywords_match_all": self.keywords_match_all_var.get(),
             "process_zip": self.process_zip_var.get(),
             "use_cache": self.use_cache_var.get(),
             "enable_cloud_hydration": self.enable_cloud_hydration_var.get(),
@@ -496,6 +505,14 @@ class RandomFilePickerGUI:
         self.store_initial_config()
         self.log_message("Configuração salva com sucesso!", "success")
         messagebox.showinfo("Sucesso", "Configuração salva com sucesso!")
+    
+    def _on_keywords_match_changed(self):
+        """Callback quando o modo de combinação de palavras-chave muda."""
+        if self.keywords_match_all_var.get():
+            self.keywords_info.configure(text="(Arquivo deve conter TODAS as palavras-chave no nome)")
+        else:
+            self.keywords_info.configure(text="(Arquivo deve conter ao menos UMA das palavras-chave no nome)")
+        self.check_config_changed()
     
     def _on_history_limit_changed(self):
         """Callback quando o limite de histórico muda."""
@@ -1381,7 +1398,8 @@ class RandomFilePickerGUI:
                 # Modo aleatório tradicional com suporte a ZIP
                 file_result = pick_random_file_with_zip_support(
                     folders, exclude_prefix, check_accessibility=False, 
-                    keywords=keywords, process_zip=process_zip, use_cache=use_cache
+                    keywords=keywords, keywords_match_all=self.keywords_match_all_var.get(),
+                    process_zip=process_zip, use_cache=use_cache
                 )
                 
                 if not file_result or not file_result['file_path']:
@@ -1582,7 +1600,11 @@ class RandomFilePickerGUI:
             self.use_cache_var.set(config.get("use_cache", True))
             self.enable_cloud_hydration_var.set(config.get("enable_cloud_hydration", False))
             self.keywords_var.set(config.get("keywords", ""))
+            self.keywords_match_all_var.set(config.get("keywords_match_all", False))
             self.history_limit_var.set(config.get("history_limit", 5))
+            
+            # Atualiza texto informativo baseado no modo
+            self._on_keywords_match_changed()
             
             # Restaurar histórico e última pasta
             self.file_history = config.get("file_history", [])

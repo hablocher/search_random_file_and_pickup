@@ -103,6 +103,7 @@ class ConfigManager:
             "use_sequence": True,
             "history_limit": 5,
             "keywords": "",
+            "keywords_match_all": False,
             "process_zip": True,
             "tmdb_api_key": "",
             "file_history": [],

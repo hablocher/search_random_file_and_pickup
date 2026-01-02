@@ -22,7 +22,7 @@ class CacheManager:
     
     def _get_config_hash(self, folders: List[str], read_prefix: str, 
                         ignore_prefix: str, keywords: List[str], 
-                        process_zip: bool) -> str:
+                        process_zip: bool, keywords_match_all: bool = False) -> str:
         """Gera hash das configurações de busca.
         
         Args:
@@ -31,6 +31,7 @@ class CacheManager:
             ignore_prefix: Prefixo de pastas a ignorar.
             keywords: Lista de palavras-chave.
             process_zip: Se processa arquivos ZIP.
+            keywords_match_all: Se deve aplicar AND (todas) ou OR (ao menos uma).
             
         Returns:
             Hash MD5 das configurações.
@@ -40,7 +41,8 @@ class CacheManager:
             'read_prefix': read_prefix,
             'ignore_prefix': ignore_prefix,
             'keywords': sorted(keywords) if keywords else [],
-            'process_zip': process_zip
+            'process_zip': process_zip,
+            'keywords_match_all': keywords_match_all
         }, sort_keys=True)
         
         return hashlib.md5(config_str.encode()).hexdigest()
@@ -77,7 +79,7 @@ class CacheManager:
     
     def is_cache_valid(self, folders: List[str], read_prefix: str, 
                       ignore_prefix: str, keywords: List[str], 
-                      process_zip: bool) -> bool:
+                      process_zip: bool, keywords_match_all: bool = False) -> bool:
         """Verifica se o cache é válido para as configurações atuais.
         
         Args:
@@ -86,6 +88,7 @@ class CacheManager:
             ignore_prefix: Prefixo de pastas a ignorar.
             keywords: Lista de palavras-chave.
             process_zip: Se processa arquivos ZIP.
+            keywords_match_all: Se deve aplicar AND ou OR.
             
         Returns:
             True se o cache é válido, False caso contrário.
@@ -103,7 +106,7 @@ class CacheManager:
         
         # Verifica hash das configurações
         current_hash = self._get_config_hash(folders, read_prefix, ignore_prefix, 
-                                            keywords, process_zip)
+                                            keywords, process_zip, keywords_match_all)
         if metadata.get('config_hash') != current_hash:
             return False
         
@@ -138,7 +141,7 @@ class CacheManager:
     
     def save_cache(self, files: List[Dict[str, Any]], folders: List[str], 
                    read_prefix: str, ignore_prefix: str, keywords: List[str], 
-                   process_zip: bool) -> bool:
+                   process_zip: bool, keywords_match_all: bool = False) -> bool:
         """Salva o cache no disco.
         
         Args:
@@ -148,6 +151,7 @@ class CacheManager:
             ignore_prefix: Prefixo de pastas a ignorar.
             keywords: Lista de palavras-chave.
             process_zip: Se processa arquivos ZIP.
+            keywords_match_all: Se deve aplicar AND ou OR.
             
         Returns:
             True se salvou com sucesso, False caso contrário.
@@ -164,7 +168,7 @@ class CacheManager:
                     'created_at': datetime.now().isoformat(),
                     'config_hash': self._get_config_hash(folders, read_prefix, 
                                                          ignore_prefix, keywords, 
-                                                         process_zip),
+                                                         process_zip, keywords_match_all),
                     'folder_mtimes': folder_mtimes,
                     'file_count': len(files)
                 },
