@@ -349,4 +349,88 @@ class ArchiveExtractor:
         if detected_format == '7z':
             return (None, 0, '7Z_NOT_SUPPORTED')
         
-        return (None, 0, 'UNKNOWN_FORMAT')
+        return (None, 0, 'UNKNOWN_FORMAT')    
+    def extract_first_image_from_file(
+        self,
+        file_path: str
+    ) -> Tuple[Optional[Image.Image], int, Optional[str]]:
+        """Extrai primeira imagem lendo diretamente do arquivo (sem buffer).
+        Detecta o tipo analisando o conteúdo (magic bytes), não a extensão.
+        
+        Args:
+            file_path: Caminho do arquivo.
+            
+        Returns:
+            Tupla (imagem_PIL, contagem, status).
+        """
+        try:
+            # Lê os primeiros bytes para detectar o formato
+            with open(file_path, 'rb') as f:
+                header = f.read(32)
+            
+            detected_format = ArchiveExtractor.detect_format(header)
+            self._log(f"🔍 Formato detectado: {detected_format}")
+            
+            # PDF
+            if detected_format == 'pdf':
+                self._log("📦 Processando arquivo PDF")
+                with open(file_path, 'rb') as f:
+                    file_data = f.read()
+                image, page_count = self.extract_from_pdf(file_data)
+                return (image, page_count, None)
+            
+            # RAR
+            if detected_format in ['rar', 'rar5']:
+                self._log("📦 Processando arquivo RAR")
+                with rarfile.RarFile(file_path) as archive:
+                    file_list = archive.namelist()
+                    page_count = sum(1 for f in file_list 
+                                   if f.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp')))
+                    
+                    for filename in sorted(file_list):
+                        if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                            try:
+                                with archive.open(filename) as img_file:
+                                    image_data = img_file.read()
+                                    image = Image.open(io.BytesIO(image_data))
+                                    self._log(f"✓ Imagem extraída do RAR: {image.size}")
+                                    return (image, page_count, None)
+                            except Exception as e:
+                                self._log(f"✗ Erro ao extrair {filename}: {e}")
+                                continue
+                    
+                    return (None, page_count, None)
+            
+            # ZIP
+            if detected_format == 'zip':
+                self._log("📦 Processando arquivo ZIP")
+                with zipfile.ZipFile(file_path) as archive:
+                    file_list = archive.namelist()
+                    page_count = sum(1 for f in file_list 
+                                   if f.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp')))
+                    
+                    for filename in sorted(file_list):
+                        if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                            try:
+                                with archive.open(filename) as img_file:
+                                    image_data = img_file.read()
+                                    image = Image.open(io.BytesIO(image_data))
+                                    self._log(f"✓ Imagem extraída do ZIP: {image.size}")
+                                    return (image, page_count, None)
+                            except Exception as e:
+                                self._log(f"✗ Erro ao extrair {filename}: {e}")
+                                continue
+                    
+                    return (None, page_count, None)
+            
+            # 7z não suportado
+            if detected_format == '7z':
+                self._log("⚠ Arquivo é 7-Zip, formato não suportado")
+                return (None, 0, '7Z_NOT_SUPPORTED')
+            
+            self._log(f"⚠ Formato desconhecido: {detected_format}")
+            return (None, 0, 'UNKNOWN_FORMAT')
+            
+        except Exception as e:
+            self._log(f"✗ Erro ao processar arquivo: {type(e).__name__}: {e}")
+            return (None, 0, 'ERROR')

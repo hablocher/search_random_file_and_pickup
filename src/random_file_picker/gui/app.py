@@ -240,11 +240,17 @@ class RandomFilePickerGUI:
                                                variable=self.use_cache_var)
         self.use_cache_check.grid(row=10, column=0, columnspan=2, sticky=tk.W, pady=2)
         
+        self.enable_cloud_hydration_var = tk.BooleanVar(value=False)
+        self.enable_cloud_hydration_check = ttk.Checkbutton(options_frame, 
+                                                            text="Forçar download de arquivos em nuvem (OneDrive/Google Drive)",
+                                                            variable=self.enable_cloud_hydration_var)
+        self.enable_cloud_hydration_check.grid(row=11, column=0, columnspan=2, sticky=tk.W, pady=2)
+        
         # Botão de salvar configuração dentro das Configurações
         self.save_config_btn = ttk.Button(options_frame, text="Salvar Configuração", 
                                          command=self.manual_save_config, state='disabled',
                                          width=20)
-        self.save_config_btn.grid(row=11, column=0, columnspan=2, pady=(10, 0), sticky=tk.W)
+        self.save_config_btn.grid(row=12, column=0, columnspan=2, pady=(10, 0), sticky=tk.W)
         
         # === LADO DIREITO: Botões verticais ===
         right_container = ttk.Frame(options_main_container)
@@ -412,6 +418,7 @@ class RandomFilePickerGUI:
             "keywords": self.get_keywords_list(),
             "process_zip": self.process_zip_var.get(),
             "use_cache": self.use_cache_var.get(),
+            "enable_cloud_hydration": self.enable_cloud_hydration_var.get(),
             "last_opened_folder": self.last_opened_folder
         }
     
@@ -453,6 +460,7 @@ class RandomFilePickerGUI:
         self.keywords_var.trace_add('write', lambda *args: self.check_config_changed())
         self.process_zip_var.trace_add('write', lambda *args: self.check_config_changed())
         self.use_cache_var.trace_add('write', lambda *args: self.check_config_changed())
+        self.enable_cloud_hydration_var.trace_add('write', lambda *args: self.check_config_changed())
     
     def setup_keyboard_shortcuts(self):
         """Configura atalhos de teclado."""
@@ -628,6 +636,127 @@ class RandomFilePickerGUI:
         except Exception as e:
             self.log_message(f"Erro ao abrir arquivo: {e}", "error")
     
+    def _force_cloud_hydration(self, file_path):
+        """Força hidratação completa de arquivo do Google Drive/OneDrive usando Cloud Files API.
+        
+        Retorna: True se conseguiu hidratar, False caso contrário
+        """
+        import ctypes
+        from ctypes import wintypes
+        import platform
+        
+        if platform.system() != "Windows":
+            return True  # Não precisa em outros sistemas
+        
+        try:
+            self.log_message("🔧 Verificando estado do arquivo na nuvem...", "info")
+            
+            # Carrega a DLL da Cloud Filter API
+            try:
+                cldapi = ctypes.WinDLL("CldApi.dll")
+            except:
+                self.log_message("   ⚠ CldApi.dll não disponível (Windows 10 1709+ necessário)", "warning")
+                return True  # Continua sem a API
+            
+            # Verifica estado do arquivo
+            CF_PLACEHOLDER_STATE_PLACEHOLDER = 0x00000001
+            CF_PLACEHOLDER_STATE_PARTIALLY_ON_DISK = 0x00000020
+            
+            state = cldapi.CfGetPlaceholderStateFromFileInfo(
+                wintypes.LPCWSTR(file_path),
+                0  # FileBasicInfo
+            )
+            
+            is_placeholder = (state & CF_PLACEHOLDER_STATE_PLACEHOLDER) or \
+                           (state & CF_PLACEHOLDER_STATE_PARTIALLY_ON_DISK)
+            
+            if not is_placeholder and state != -1:
+                self.log_message("   ✓ Arquivo já está local (não é placeholder)", "success")
+                return True
+            
+            self.log_message("   📥 Arquivo é placeholder - forçando hidratação completa...", "info")
+            
+            # Abre o arquivo para obter handle
+            GENERIC_READ = 0x80000000
+            GENERIC_WRITE = 0x40000000
+            FILE_SHARE_READ = 0x00000001
+            OPEN_EXISTING = 3
+            FILE_ATTRIBUTE_NORMAL = 0x00000080
+            
+            handle = ctypes.windll.kernel32.CreateFileW(
+                wintypes.LPCWSTR(file_path),
+                GENERIC_READ | GENERIC_WRITE,  # Precisa de escrita para hidratar
+                FILE_SHARE_READ,  # Permite leitura simultânea
+                None,  # lpSecurityAttributes
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                None  # hTemplateFile
+            )
+            
+            if handle == -1 or handle == 0:
+                error_code = ctypes.windll.kernel32.GetLastError()
+                self.log_message(f"   ❌ Erro ao abrir arquivo (erro {error_code})", "error")
+                return False
+            
+            try:
+                # Força hidratação do arquivo inteiro
+                # CfHydratePlaceholder(handle, startOffset, length, flags, overlapped)
+                # length = -1 significa "arquivo inteiro"
+                CF_HYDRATE_FLAG_NONE = 0x00000000
+                
+                result = cldapi.CfHydratePlaceholder(
+                    handle,
+                    ctypes.c_longlong(0),    # startOffset = 0 (início)
+                    ctypes.c_longlong(-1),   # length = -1 (arquivo inteiro)
+                    CF_HYDRATE_FLAG_NONE,    # flags = 0 (síncrono)
+                    None  # overlapped = NULL
+                )
+                
+                if result == 0:
+                    self.log_message("   ✓ Hidratação iniciada com sucesso!", "success")
+                    
+                    # Aguarda a hidratação completar verificando o estado
+                    import time
+                    max_wait = 60  # Máximo 60 segundos
+                    waited = 0
+                    
+                    while waited < max_wait:
+                        time.sleep(2)
+                        waited += 2
+                        
+                        # Verifica estado novamente
+                        new_state = cldapi.CfGetPlaceholderStateFromFileInfo(
+                            wintypes.LPCWSTR(file_path),
+                            0
+                        )
+                        
+                        # Se não é mais placeholder/partial, está pronto
+                        is_still_placeholder = (new_state & CF_PLACEHOLDER_STATE_PLACEHOLDER) or \
+                                             (new_state & CF_PLACEHOLDER_STATE_PARTIALLY_ON_DISK)
+                        
+                        if not is_still_placeholder or new_state == -1:
+                            self.log_message(f"   ✓ Hidratação completa após {waited}s!", "success")
+                            return True
+                        
+                        if waited % 10 == 0:
+                            self.log_message(f"   ⏳ Aguardando hidratação... ({waited}s)", "info")
+                    
+                    self.log_message(f"   ⚠ Timeout aguardando hidratação (60s)", "warning")
+                    return True  # Continua tentando mesmo assim
+                    
+                else:
+                    error_code = ctypes.get_last_error()
+                    self.log_message(f"   ⚠ CfHydratePlaceholder retornou {result} (erro {error_code})", "warning")
+                    return False
+                    
+            finally:
+                # Fecha o handle
+                ctypes.windll.kernel32.CloseHandle(handle)
+            
+        except Exception as e:
+            self.log_message(f"⚠ Erro ao forçar hidratação: {e}", "warning")
+            return False
+    
     def _force_file_download(self, file_path):
         """Força o download completo do arquivo da nuvem lendo-o progressivamente.
         
@@ -666,120 +795,190 @@ class RandomFilePickerGUI:
             self.log_message(f"❌ Erro ao forçar download: {e}", "error")
             return False
     
-    def _load_file_to_buffer(self, file_path):
-        """Carrega arquivo na memória, forçando download se necessário.
+    def _is_placeholder_file(self, file_path):
+        """Verifica se o arquivo é um placeholder de nuvem.
         
-        Retorna: True se sucesso, False se cancelado/inválido
+        Retorna: True se é placeholder, False se é arquivo normal
+        """
+        import ctypes
+        from ctypes import wintypes
+        import platform
+        
+        if platform.system() != "Windows":
+            return False
+        
+        try:
+            # Tenta usar Cloud Files API para verificar
+            try:
+                cldapi = ctypes.WinDLL("CldApi.dll")
+                
+                CF_PLACEHOLDER_STATE_PLACEHOLDER = 0x00000001
+                CF_PLACEHOLDER_STATE_PARTIALLY_ON_DISK = 0x00000020
+                
+                state = cldapi.CfGetPlaceholderStateFromFileInfo(
+                    wintypes.LPCWSTR(file_path),
+                    0
+                )
+                
+                is_placeholder = (state & CF_PLACEHOLDER_STATE_PLACEHOLDER) or \
+                               (state & CF_PLACEHOLDER_STATE_PARTIALLY_ON_DISK)
+                
+                if is_placeholder:
+                    self.log_message("📋 Arquivo detectado como placeholder de nuvem", "info")
+                    return True
+                else:
+                    self.log_message("✓ Arquivo já está local (não é placeholder)", "success")
+                    return False
+                    
+            except:
+                # API não disponível, tenta detecção manual
+                pass
+            
+            # Fallback: tenta ler e validar conteúdo
+            from pathlib import Path
+            file_ext = Path(file_path).suffix.lower()
+            
+            if file_ext in ['.rar', '.cbr']:
+                import rarfile
+                try:
+                    with rarfile.RarFile(file_path) as rf:
+                        file_list = rf.namelist()
+                        for filename in sorted(file_list)[:1]:  # Apenas primeiro
+                            if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                                with rf.open(filename) as img_file:
+                                    test_read = img_file.read(1024)
+                                    if len(test_read) < 100:
+                                        self.log_message("📋 Arquivo detectado como placeholder (leitura < 100 bytes)", "info")
+                                        return True
+                                break
+                    self.log_message("✓ Arquivo validado como local", "success")
+                    return False
+                except:
+                    # Se não conseguiu abrir, assume que é placeholder
+                    self.log_message("⚠ Não foi possível validar - assumindo placeholder", "warning")
+                    return True
+            
+            elif file_ext in ['.zip', '.cbz']:
+                import zipfile
+                try:
+                    with zipfile.ZipFile(file_path) as zf:
+                        file_list = zf.namelist()
+                        for filename in sorted(file_list)[:1]:
+                            if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                                with zf.open(filename) as img_file:
+                                    test_read = img_file.read(1024)
+                                    if len(test_read) < 100:
+                                        self.log_message("📋 Arquivo detectado como placeholder (leitura < 100 bytes)", "info")
+                                        return True
+                                break
+                    self.log_message("✓ Arquivo validado como local", "success")
+                    return False
+                except:
+                    self.log_message("⚠ Não foi possível validar - assumindo placeholder", "warning")
+                    return True
+            
+            # Outros formatos: assume que está OK
+            return False
+            
+        except Exception as e:
+            self.log_message(f"⚠ Erro ao verificar placeholder: {e}", "warning")
+            return False
+    
+    def _load_file_to_buffer(self, file_path):
+        """Verifica se arquivo é placeholder e força hidratação se necessário.
+        
+        Retorna: True se arquivo está pronto, False se falhou
         """
         import time
         from pathlib import Path
         
-        max_retries = 5  # 5 tentativas
-        retry_delay = 3   # 3 segundos entre tentativas
+        # VERIFICA SE HIDRATAÇÃO ESTÁ HABILITADA
+        if not self.enable_cloud_hydration_var.get():
+            # Hidratação desabilitada - não verifica placeholder
+            self.log_message("ℹ Hidratação de nuvem desabilitada - processando arquivo diretamente", "info")
+            return True
+        
+        # VERIFICA SE É PLACEHOLDER
+        if not self._is_placeholder_file(file_path):
+            # Arquivo já está local, não precisa hidratar
+            self.log_message("✓ Arquivo local - pode extrair diretamente", "success")
+            return True
+        
+        # É PLACEHOLDER - PRECISA HIDRATAR
+        self.log_message("🔄 Arquivo é placeholder - iniciando hidratação...", "info")
+        
+        max_retries = 3  # 3 tentativas
+        retry_delay = 10   # 10 segundos entre tentativas
         
         for attempt in range(1, max_retries + 1):
             try:
                 self.log_message(f"🔍 Tentativa {attempt}/{max_retries}...", "info")
                 
-                # FASE 1: FORÇA DOWNLOAD DO ARQUIVO (lê progressivamente)
-                if not self._force_file_download(file_path):
-                    if attempt < max_retries:
-                        self.log_message(f"⏳ Aguardando {retry_delay}s antes de tentar novamente...", "warning")
-                        time.sleep(retry_delay)
-                        continue
-                    else:
-                        self.log_message("❌ Não foi possível baixar o arquivo", "error")
-                        self.file_data_buffer = None
-                        return False
+                # FASE ÚNICA: FORÇA HIDRATAÇÃO E AGUARDA
+                if attempt == 1:
+                    hydration_ok = self._force_cloud_hydration(file_path)
+                    if not hydration_ok:
+                        self.log_message("⚠ API de hidratação falhou - usando método alternativo...", "warning")
+                        # Fallback: força download lendo o arquivo
+                        self._force_file_download(file_path)
                 
-                # AGUARDA UM POUCO para Windows terminar de hidratar
-                if attempt > 1:  # Nas tentativas subsequentes, aguarda mais
-                    self.log_message(f"⏳ Aguardando Windows sincronizar ({retry_delay}s)...", "info")
-                    time.sleep(retry_delay)
+                # Aguarda progressivamente mais tempo
+                wait_time = retry_delay * attempt  # 10s, 20s, 30s
+                self.log_message(f"⏳ Aguardando hidratação completar ({wait_time}s)...", "info")
+                time.sleep(wait_time)
                 
-                # FASE 2: CARREGA NA MEMÓRIA
-                self.log_message("📂 Carregando arquivo na memória...", "info")
-                
-                # Mostra botão de cancelar
-                self.root.after(0, self.show_cancel_button)
-                
-                # Callback de progresso
-                def progress_callback(progress, bytes_read, elapsed):
-                    self.root.after(0, lambda e=elapsed: self.update_cancel_button_time(e))
-                    self.log_message(
-                        f"⏳ Carregando: {progress:.1f}% ({bytes_read / (1024*1024):.1f} MB)",
-                        "info"
-                    )
-                
-                # Callback de verificação de cancelamento
-                def cancel_check():
-                    return self.file_loader.cancel_requested
-                
-                # Usa FileLoader para carregar
-                file_data, success = self.file_loader.load_file(
-                    file_path,
-                    progress_callback=progress_callback,
-                    cancel_check_callback=cancel_check
-                )
-                
-                # Oculta botão de cancelar
-                self.root.after(0, self.hide_cancel_button)
-                
-                if not success or not file_data:
-                    self.log_message("❌ Carregamento cancelado pelo usuário", "error")
-                    return False
-                
-                # FASE 3: VALIDA SE BUFFER É REAL (não é placeholder)
-                self.log_message("🔍 Validando conteúdo do buffer...", "info")
-                
+                # Valida se o arquivo agora está hidratado tentando abrir como RAR
                 file_ext = Path(file_path).suffix.lower()
-                buffer_valid = True
                 
                 if file_ext in ['.rar', '.cbr']:
-                    from random_file_picker.core.archive_extractor import validate_rar_buffer
-                    buffer_valid = validate_rar_buffer(file_data, self.log_message)
-                elif file_ext in ['.zip', '.cbz']:
-                    from random_file_picker.core.archive_extractor import validate_zip_buffer
-                    buffer_valid = validate_zip_buffer(file_data, self.log_message)
+                    import rarfile
+                    try:
+                        with rarfile.RarFile(file_path) as rf:
+                            file_list = rf.namelist()
+                            # Tenta ler primeira imagem
+                            for filename in sorted(file_list):
+                                if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                                    with rf.open(filename) as img_file:
+                                        test_read = img_file.read(1024)
+                                        if len(test_read) >= 100:
+                                            self.log_message("✓ Arquivo hidratado e validado!", "success")
+                                            return True
+                                        else:
+                                            self.log_message(f"⚠ Ainda placeholder (lidos {len(test_read)} bytes)", "warning")
+                                            break
+                                    break
+                    except Exception as e:
+                        self.log_message(f"⚠ Erro ao validar: {e}", "warning")
                 
-                if buffer_valid:
-                    # Buffer válido!
-                    self.file_data_buffer = file_data
-                    elapsed = self.file_loader.get_elapsed_time()
-                    self.log_message(
-                        f"✓ Buffer válido: {len(self.file_data_buffer)} bytes em {elapsed:.1f}s",
-                        "success"
-                    )
-                    return True
+                elif file_ext in ['.zip', '.cbz']:
+                    import zipfile
+                    try:
+                        with zipfile.ZipFile(file_path) as zf:
+                            file_list = zf.namelist()
+                            for filename in sorted(file_list):
+                                if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                                    with zf.open(filename) as img_file:
+                                        test_read = img_file.read(1024)
+                                        if len(test_read) >= 100:
+                                            self.log_message("✓ Arquivo hidratado e validado!", "success")
+                                            return True
+                                        else:
+                                            self.log_message(f"⚠ Ainda placeholder (lidos {len(test_read)} bytes)", "warning")
+                                            break
+                                    break
+                    except Exception as e:
+                        self.log_message(f"⚠ Erro ao validar: {e}", "warning")
+                
+                # Se não validou, tenta novamente
+                if attempt < max_retries:
+                    self.log_message("⚠ Arquivo ainda não está pronto - tentando novamente...", "warning")
                 else:
-                    # Buffer inválido (placeholder)
-                    if attempt < max_retries:
-                        self.log_message(
-                            f"⚠ Buffer ainda é placeholder - tentando novamente...",
-                            "warning"
-                        )
-                        # Aguarda mais tempo antes de tentar novamente
-                        time.sleep(retry_delay)
-                        continue
-                    else:
-                        self.log_message(
-                            f"❌ Buffer continua inválido após {max_retries} tentativas",
-                            "error"
-                        )
-                        self.log_message(
-                            "💡 Dica: Abra o arquivo no explorador/YACReader para forçar download completo.",
-                            "info"
-                        )
-                        self.file_data_buffer = None
-                        return False
+                    self.log_message("❌ Arquivo não ficou pronto após todas as tentativas", "error")
+                    return False
                     
             except Exception as e:
                 self.log_message(f"❌ Erro: {e}", "error")
-                self.root.after(0, self.hide_cancel_button)
-                if attempt < max_retries:
-                    self.log_message(f"⏳ Tentando novamente em {retry_delay}s...", "info")
-                    time.sleep(retry_delay)
-                else:
+                if attempt >= max_retries:
                     return False
         
         return False
@@ -840,9 +1039,10 @@ class RandomFilePickerGUI:
     
     def _extract_first_image_from_zip(self, file_path):
         """Extrai a primeira imagem (jpg/png) de um arquivo compactado (ZIP/RAR/PDF).
+        Lê diretamente do arquivo após hidratação (sem buffer na memória).
         
         Retorna:
-            Tupla (PIL.Image, page_count) ou (\"SYNCING\", page_count) ou (None, 0)
+            Tupla (PIL.Image, page_count) ou ("SYNCING", page_count) ou (None, 0)
         """
         try:
             # Verifica se o arquivo existe e tem tamanho razoável
@@ -851,23 +1051,15 @@ class RandomFilePickerGUI:
                 self.log_message(f"Arquivo parece ser placeholder (tamanho: {file_stat.st_size} bytes)", "warning")
                 return (None, 0)
             
-            # CARREGA O ARQUIVO NO BUFFER PRIMEIRO (com chunks e cancelamento)
+            # FORÇA HIDRATAÇÃO DO ARQUIVO (aguarda estar pronto)
             if not self._load_file_to_buffer(file_path):
-                # Carregamento falhou (cancelado OU placeholder detectado)
-                # Se for placeholder, file_data_buffer será None
-                if self.file_data_buffer is None:
-                    # Era placeholder, retorna SYNCING
-                    return ("SYNCING", 0)
-                else:
-                    # Foi cancelado pelo usuário
-                    return (None, 0)
+                # Hidratação falhou
+                self.log_message("⚠ Não foi possível hidratar o arquivo", "warning")
+                return ("SYNCING", 0)
             
-            # Usa ArchiveExtractor para extrair imagem
-            self.log_message(f"Detectando formato e extraindo imagem...", "info")
-            image, page_count, status = self.archive_extractor.extract_first_image(
-                file_path,
-                self.file_data_buffer
-            )
+            # Usa ArchiveExtractor para extrair imagem DIRETAMENTE DO ARQUIVO
+            self.log_message(f"📖 Extraindo imagem diretamente do arquivo...", "info")
+            image, page_count, status = self.archive_extractor.extract_first_image_from_file(file_path)
             
             self.log_message(f"Resultado: image={'presente' if image else 'None'}, pages={page_count}, status={status}", "info")
             
@@ -1297,6 +1489,7 @@ class RandomFilePickerGUI:
             self.use_sequence_var.set(config.get("use_sequence", True))
             self.process_zip_var.set(config.get("process_zip", True))
             self.use_cache_var.set(config.get("use_cache", True))
+            self.enable_cloud_hydration_var.set(config.get("enable_cloud_hydration", False))
             self.keywords_var.set(config.get("keywords", ""))
             self.history_limit_var.set(config.get("history_limit", 5))
             
