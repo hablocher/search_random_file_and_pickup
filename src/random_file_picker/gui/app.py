@@ -4,6 +4,7 @@ import os
 import subprocess
 import platform
 import time
+import sys
 from pathlib import Path
 import threading
 from PIL import Image, ImageTk
@@ -25,6 +26,17 @@ from random_file_picker.core.file_loader import FileLoader
 from random_file_picker.core.archive_extractor import ArchiveExtractor
 from random_file_picker.core.thumbnail_generator import ThumbnailGenerator
 from random_file_picker.core.file_analyzer import FileAnalyzer
+
+
+def get_assets_dir():
+    """Retorna o diretório de assets, funcionando tanto em dev quanto no executável."""
+    if getattr(sys, 'frozen', False):
+        # Executável PyInstaller
+        base_path = Path(sys._MEIPASS)
+    else:
+        # Modo desenvolvimento
+        base_path = Path.cwd()
+    return base_path / "assets"
 
 
 class RandomFilePickerGUI:
@@ -240,7 +252,7 @@ class RandomFilePickerGUI:
         
         # Carregar imagem estática do botão (roulette.png)
         try:
-            assets_dir = Path.cwd() / "assets"
+            assets_dir = get_assets_dir()
             roulette_path = assets_dir / "roulette.png"
             
             if roulette_path.exists():
