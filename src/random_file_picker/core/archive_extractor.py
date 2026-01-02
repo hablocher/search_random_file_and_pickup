@@ -1,12 +1,19 @@
-"""Extração de imagens de arquivos compactados (ZIP/RAR) e PDF."""
+"""Extração de imagens de arquivos compactados (ZIP/RAR), PDF e vídeos."""
 
 import io
 import zipfile
+import random
 from pathlib import Path
 from typing import Optional, Tuple, Callable
 
 import rarfile
 from PIL import Image
+
+try:
+    import ffmpeg
+    HAS_FFMPEG = True
+except ImportError:
+    HAS_FFMPEG = False
 
 try:
     import fitz  # PyMuPDF
@@ -130,7 +137,7 @@ class ArchiveExtractor:
             file_data: Primeiros bytes do arquivo.
             
         Returns:
-            'zip', 'rar', 'rar4', 'rar5', '7z', 'pdf' ou None.
+            'zip', 'rar', 'rar4', 'rar5', '7z', 'pdf', 'mp4', 'avi', 'mkv', 'webm', 'flv', 'mov', 'wmv', 'mp3', 'flac', 'ogg', 'wav' ou None.
         """
         if len(file_data) < 10:
             return None
@@ -153,6 +160,39 @@ class ArchiveExtractor:
         # PDF: 25 50 44 46 (%PDF)
         elif file_data[:4] == b'%PDF':
             return 'pdf'
+        # MP4/M4V/M4A: ftyp
+        elif len(file_data) >= 12 and file_data[4:8] == b'ftyp':
+            return 'mp4'
+        # AVI: RIFF....AVI
+        elif file_data[:4] == b'RIFF' and len(file_data) >= 12 and file_data[8:12] == b'AVI ':
+            return 'avi'
+        # MKV/WEBM: 1A 45 DF A3
+        elif file_data[:4] == b'\x1a\x45\xdf\xa3':
+            # Detecta se é MKV ou WEBM pelo doctype
+            if b'webm' in file_data[:100].lower():
+                return 'webm'
+            return 'mkv'
+        # FLV: 46 4C 56
+        elif file_data[:3] == b'FLV':
+            return 'flv'
+        # MOV/QT: moov/mdat/free
+        elif len(file_data) >= 8 and file_data[4:8] in [b'moov', b'mdat', b'free', b'wide']:
+            return 'mov'
+        # WMV/WMA/ASF: 30 26 B2 75
+        elif file_data[:4] == b'\x30\x26\xb2\x75':
+            return 'wmv'
+        # MP3: FF FB ou FF F3 ou FF F2 ou ID3
+        elif (file_data[:2] in [b'\xff\xfb', b'\xff\xf3', b'\xff\xf2'] or file_data[:3] == b'ID3'):
+            return 'mp3'
+        # FLAC: 66 4C 61 43
+        elif file_data[:4] == b'fLaC':
+            return 'flac'
+        # OGG: 4F 67 67 53
+        elif file_data[:4] == b'OggS':
+            return 'ogg'
+        # WAV: RIFF....WAVE
+        elif file_data[:4] == b'RIFF' and len(file_data) >= 12 and file_data[8:12] == b'WAVE':
+            return 'wav'
         
         return None
     
@@ -352,7 +392,99 @@ class ArchiveExtractor:
         if detected_format == '7z':
             return (None, 0, '7Z_NOT_SUPPORTED')
         
-        return (None, 0, 'UNKNOWN_FORMAT')    
+        return (None, 0, 'UNKNOWN_FORMAT')
+    
+    def extract_from_video(self, file_path: str) -> Tuple[Optional[Image.Image], float]:
+        """Extrai um frame aleatório da metade do vídeo (±5 minutos).
+        
+        Args:
+            file_path: Caminho do arquivo de vídeo.
+            
+        Returns:
+            Tupla (imagem_PIL, duração_em_segundos). Se falhar, retorna (None, 0).
+        """
+        if not HAS_FFMPEG:
+            self._log("⚠ ffmpeg-python não instalado", "warning")
+            return (None, 0)
+        
+        # Verifica se ffmpeg está instalado no sistema
+        import shutil
+        if not shutil.which('ffmpeg'):
+            self._log("⚠ FFmpeg não está instalado no sistema", "warning")
+            self._log("💡 Para extrair frames de vídeos, instale o FFmpeg:", "info")
+            self._log("   Windows: https://www.gyan.dev/ffmpeg/builds/", "info")
+            self._log("   Ou use: winget install Gyan.FFmpeg", "info")
+            return (None, 0)
+        
+        try:
+            self._log(f"📹 Extraindo frame do vídeo...", "info")
+            
+            # Obtém informações do vídeo
+            probe = ffmpeg.probe(file_path)
+            video_info = next((s for s in probe['streams'] if s['codec_type'] == 'video'), None)
+            
+            if not video_info:
+                self._log("⚠ Nenhuma stream de vídeo encontrada", "warning")
+                return (None, 0)
+            
+            # Duração em segundos
+            duration = float(probe['format'].get('duration', 0))
+            if duration <= 0:
+                self._log("⚠ Não foi possível determinar duração do vídeo", "warning")
+                return (None, 0)
+            
+            self._log(f"Duração: {duration:.1f}s ({duration/60:.1f} min)", "info")
+            
+            # Calcula janela de tempo: metade ±5 minutos
+            middle = duration / 2
+            window_start = max(0, middle - 300)  # 5 minutos = 300 segundos
+            window_end = min(duration, middle + 300)
+            
+            # Escolhe tempo aleatório na janela
+            seek_time = random.uniform(window_start, window_end)
+            self._log(f"Extraindo frame em {seek_time:.1f}s (janela: {window_start:.1f}s - {window_end:.1f}s)", "info")
+            
+            # Extrai frame
+            import tempfile
+            import os
+            
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                tmp_path = tmp.name
+            
+            try:
+                # Usa ffmpeg para extrair frame
+                (
+                    ffmpeg
+                    .input(file_path, ss=seek_time)
+                    .output(tmp_path, vframes=1, format='image2', vcodec='mjpeg')
+                    .overwrite_output()
+                    .run(capture_stdout=True, capture_stderr=True, quiet=True)
+                )
+                
+                # Carrega imagem
+                image = Image.open(tmp_path)
+                self._log(f"✓ Frame extraído: {image.size}", "success")
+                return (image, duration)
+                
+            finally:
+                # Remove arquivo temporário
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+        
+        except FileNotFoundError as e:
+            self._log("❌ FFmpeg não encontrado no sistema", "error")
+            self._log("💡 Instale o FFmpeg para extrair frames de vídeos:", "info")
+            self._log("   Windows: winget install Gyan.FFmpeg", "info")
+            self._log("   Ou baixe em: https://www.gyan.dev/ffmpeg/builds/", "info")
+            return (None, 0)
+        except ffmpeg.Error as e:
+            stderr = e.stderr.decode() if e.stderr else str(e)
+            self._log(f"✗ Erro ffmpeg: {stderr}", "error")
+            return (None, 0)
+        except Exception as e:
+            self._log(f"✗ Erro ao extrair frame: {type(e).__name__}: {e}", "error")
+            return (None, 0)
+    
     def extract_first_image_from_file(
         self,
         file_path: str
@@ -373,6 +505,23 @@ class ArchiveExtractor:
             
             detected_format = ArchiveExtractor.detect_format(header)
             self._log(f"🔍 Formato detectado: {detected_format}")
+            
+            # VÍDEOS
+            video_formats = ['mp4', 'avi', 'mkv', 'webm', 'flv', 'mov', 'wmv']
+            if detected_format in video_formats:
+                self._log(f"📹 Processando arquivo de vídeo ({detected_format.upper()})")
+                image, duration = self.extract_from_video(file_path)
+                if image:
+                    # Retorna duração como "page_count" para mostrar info
+                    return (image, int(duration), None)
+                else:
+                    return (None, 0, 'VIDEO_ERROR')
+            
+            # ÁUDIO (apenas mostra mensagem, não extrai imagem)
+            audio_formats = ['mp3', 'flac', 'ogg', 'wav']
+            if detected_format in audio_formats:
+                self._log(f"🎵 Arquivo de áudio ({detected_format.upper()}) - sem prévia visual")
+                return (None, 0, 'AUDIO_FILE')
             
             # PDF
             if detected_format == 'pdf':

@@ -1018,6 +1018,15 @@ class RandomFilePickerGUI:
                 self.log_message("⚠ Arquivo é 7-Zip (.7z), formato não suportado ainda", "warning")
                 self.log_message("Extraia manualmente ou converta para ZIP/RAR", "info")
                 return (None, 0)
+            elif status == 'VIDEO_ERROR':
+                self.log_message("⚠ Erro ao extrair frame do vídeo", "warning")
+                self.log_message("💡 Certifique-se de que o FFmpeg está instalado:", "info")
+                self.log_message("   Windows: winget install Gyan.FFmpeg", "info")
+                self.log_message("   Ou baixe em: https://www.gyan.dev/ffmpeg/builds/", "info")
+                return (None, 0)
+            elif status == 'AUDIO_FILE':
+                self.log_message("ℹ Arquivo de áudio - sem prévia visual disponível", "info")
+                return (None, 0)
             elif status == 'UNKNOWN_FORMAT':
                 self.log_message("Não foi possível extrair imagem do arquivo", "warning")
                 return (None, 0)
