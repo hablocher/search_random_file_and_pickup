@@ -7,6 +7,10 @@ import platform
 import mimetypes
 from pathlib import Path
 import threading
+import zipfile
+import rarfile
+import io
+from PIL import Image, ImageTk
 from random_file_picker.core.file_picker import pick_random_file, open_folder, pick_random_file_with_zip_support, cleanup_temp_dir
 from random_file_picker.core.sequential_selector import (
     select_file_with_sequence_logic,
@@ -31,6 +35,7 @@ class RandomFilePickerGUI:
         self.initial_config = {}
         self.file_history = []  # Lista dos últimos 5 arquivos
         self.last_opened_folder = None  # Última pasta aberta
+        self.current_image = None  # Referência para imagem atual (evita garbage collection)
         
         self.setup_ui()
         self.load_config()
@@ -206,6 +211,17 @@ class RandomFilePickerGUI:
         self.log_text.tag_configure("error", foreground="red")
         self.log_text.tag_configure("info", foreground="blue")
         self.log_text.tag_configure("warning", foreground="orange")
+        
+        # Frame para miniatura da imagem
+        thumbnail_frame = ttk.LabelFrame(main_frame, text="Prévia do Arquivo", padding="5")
+        thumbnail_frame.grid(row=3, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0), pady=(0, 10))
+        thumbnail_frame.columnconfigure(0, weight=1)
+        thumbnail_frame.rowconfigure(0, weight=1)
+        
+        # Label para exibir a imagem
+        self.thumbnail_label = ttk.Label(thumbnail_frame, text="Nenhum arquivo selecionado", 
+                                        anchor="center", background="#f0f0f0")
+        self.thumbnail_label.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
         # Frame para histórico de arquivos
         history_frame = ttk.LabelFrame(main_frame, text="Últimos Arquivos Selecionados", padding="5")
@@ -503,6 +519,259 @@ class RandomFilePickerGUI:
                 self.log_message(f"Sistema '{system}' não suportado para abrir arquivos.", "warning")
         except Exception as e:
             self.log_message(f"Erro ao abrir arquivo: {e}", "error")
+    
+    def _detect_archive_format(self, file_path):
+        """Detecta o formato do arquivo pela assinatura (magic bytes).
+        
+        Retorna: 'zip', 'rar', '7z', ou None
+        """
+        try:
+            with open(file_path, 'rb') as f:
+                magic = f.read(10)
+                
+                # ZIP: 50 4B (PK)
+                if magic[:2] == b'PK':
+                    return 'zip'
+                # RAR 1.5-4.x: 52 61 72 21 1A 07 (Rar!)
+                elif magic[:4] == b'Rar!':
+                    return 'rar'
+                # RAR 5+: 52 61 72 21 1A 07 01 00
+                elif magic[:8] == b'Rar!\x1a\x07\x01\x00':
+                    return 'rar5'
+                # 7-Zip: 37 7A BC AF 27 1C
+                elif magic[:6] == b'7z\xbc\xaf\x27\x1c':
+                    return '7z'
+                
+                return None
+        except Exception as e:
+            self.log_message(f"Erro ao detectar formato: {e}", "error")
+            return None
+    
+    def _try_extract_from_zip(self, file_path):
+        """Tenta extrair imagem de arquivo ZIP."""
+        try:
+            self.log_message("Tentando abrir como arquivo ZIP...", "info")
+            with zipfile.ZipFile(file_path, 'r') as zip_file:
+                file_list = zip_file.namelist()
+                self.log_message(f"✓ Arquivo ZIP aberto! Arquivos encontrados: {len(file_list)}", "success")
+                
+                # Procura pela primeira imagem
+                for filename in sorted(file_list):
+                    lower_name = filename.lower()
+                    if lower_name.endswith(('.jpg', '.jpeg', '.png')) and not filename.startswith('__MACOSX'):
+                        self.log_message(f"Extraindo imagem: {filename}", "info")
+                        
+                        try:
+                            with zip_file.open(filename) as image_file:
+                                image_data = image_file.read()
+                                image = Image.open(io.BytesIO(image_data))
+                                self.log_message(f"✓ Imagem carregada: {image.size} {image.format}", "success")
+                                return image
+                        except Exception as e:
+                            self.log_message(f"Erro ao ler imagem do ZIP: {e}", "warning")
+                            continue
+                
+                self.log_message("Nenhuma imagem JPG/PNG encontrada no ZIP", "warning")
+                return None
+                
+        except zipfile.BadZipFile:
+            self.log_message("✗ Não é um arquivo ZIP válido", "warning")
+            return None
+        except Exception as e:
+            self.log_message(f"✗ Erro ao processar ZIP: {e}", "error")
+            return None
+    
+    def _try_extract_from_rar(self, file_path):
+        """Tenta extrair imagem de arquivo RAR."""
+        try:
+            self.log_message("Tentando abrir como arquivo RAR...", "info")
+            archive_file = rarfile.RarFile(file_path, 'r')
+            file_list = archive_file.namelist()
+            self.log_message(f"✓ Arquivo RAR aberto! Arquivos encontrados: {len(file_list)}", "success")
+            
+            # Procura pela primeira imagem
+            for filename in sorted(file_list):
+                lower_name = filename.lower()
+                if lower_name.endswith(('.jpg', '.jpeg', '.png')) and not filename.startswith('__MACOSX'):
+                    self.log_message(f"Extraindo imagem: {filename}", "info")
+                    
+                    try:
+                        with archive_file.open(filename) as image_file:
+                            image_data = image_file.read()
+                            image = Image.open(io.BytesIO(image_data))
+                            self.log_message(f"✓ Imagem carregada: {image.size} {image.format}", "success")
+                            archive_file.close()
+                            return image
+                            
+                    except rarfile.BadRarFile as e:
+                        # Arquivo está parcialmente sincronizado
+                        self.log_message(f"Erro ao ler conteúdo: {e}", "warning")
+                        self.log_message("O arquivo pode estar sincronizando do OneDrive/nuvem", "warning")
+                        archive_file.close()
+                        return "SYNCING"
+                    except Exception as e:
+                        self.log_message(f"Erro ao ler imagem do RAR: {e}", "warning")
+                        continue
+            
+            self.log_message("Nenhuma imagem JPG/PNG encontrada no RAR", "warning")
+            archive_file.close()
+            return None
+            
+        except rarfile.BadRarFile:
+            self.log_message("✗ Não é um arquivo RAR válido", "warning")
+            return None
+        except Exception as e:
+            self.log_message(f"✗ Erro ao processar RAR: {e}", "error")
+            return None
+    
+    def _extract_first_image_from_zip(self, file_path):
+        """Extrai a primeira imagem (jpg/png) de um arquivo compactado (ZIP/RAR).
+        
+        Retorna:
+            PIL.Image, "SYNCING" (se sincronizando), ou None
+        """
+        try:
+            # Verifica se o arquivo existe e tem tamanho razoável
+            file_stat = Path(file_path).stat()
+            if file_stat.st_size < 1000:
+                self.log_message(f"Arquivo parece ser placeholder (tamanho: {file_stat.st_size} bytes)", "warning")
+                return None
+            
+            # Detecta formato pela assinatura do arquivo
+            detected_format = self._detect_archive_format(file_path)
+            if detected_format:
+                self.log_message(f"Formato detectado pela assinatura: {detected_format.upper()}", "info")
+            
+            # Tenta extrair baseado na extensão e formato detectado
+            file_ext = Path(file_path).suffix.lower()
+            
+            # Prioriza RAR se extensão ou detecção indicar
+            if file_ext in ['.rar', '.cbr'] or detected_format in ['rar', 'rar5']:
+                result = self._try_extract_from_rar(file_path)
+                if result is not None:
+                    return result
+                # Se falhou, tenta ZIP como fallback
+                result = self._try_extract_from_zip(file_path)
+                if result is not None:
+                    return result
+            
+            # Prioriza ZIP se extensão ou detecção indicar
+            elif file_ext in ['.zip', '.cbz'] or detected_format == 'zip':
+                result = self._try_extract_from_zip(file_path)
+                if result is not None:
+                    return result
+                # Se falhou, tenta RAR como fallback
+                result = self._try_extract_from_rar(file_path)
+                if result is not None:
+                    return result
+            
+            # Se não tem extensão conhecida, tenta ambos
+            else:
+                # Tenta ZIP primeiro
+                result = self._try_extract_from_zip(file_path)
+                if result is not None:
+                    return result
+                # Depois tenta RAR
+                result = self._try_extract_from_rar(file_path)
+                if result is not None:
+                    return result
+            
+            # Se chegou aqui, não conseguiu extrair
+            if detected_format == '7z':
+                self.log_message("⚠ Arquivo é 7-Zip (.7z), formato não suportado ainda", "warning")
+                self.log_message("Extraia manualmente ou converta para ZIP/RAR", "info")
+            else:
+                self.log_message("Não foi possível extrair imagem do arquivo", "warning")
+            
+            return None
+            
+        except Exception as e:
+            # Outro erro
+            self.log_message(f"Erro ao extrair imagem do arquivo: {e}", "error")
+            import traceback
+            self.log_message(traceback.format_exc(), "error")
+            return None
+    
+    def _create_default_thumbnail(self, message="Prévia não disponível"):
+        """Cria uma imagem padrão quando não é possível extrair a miniatura."""
+        from PIL import ImageDraw, ImageFont
+        
+        # Cria uma imagem cinza com texto
+        img = Image.new('RGB', (200, 280), color='#e0e0e0')
+        draw = ImageDraw.Draw(img)
+        
+        # Adiciona borda
+        draw.rectangle([0, 0, 199, 279], outline='#999999', width=2)
+        
+        # Adiciona texto no centro
+        # Usa fonte padrão (pequena)
+        text = message
+        
+        # Calcula posição central
+        bbox = draw.textbbox((0, 0), text)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        x = (200 - text_width) // 2
+        y = (280 - text_height) // 2
+        
+        draw.text((x, y), text, fill='#666666')
+        
+        return img
+    
+    def _display_thumbnail(self, file_path):
+        """Exibe a miniatura do arquivo selecionado."""
+        self.log_message(f"\n=== Carregando miniatura de: {Path(file_path).name}", "info")
+        
+        try:
+            # Tenta extrair imagem do arquivo (se for ZIP/RAR)
+            image = self._extract_first_image_from_zip(file_path)
+            
+            if image == "SYNCING":
+                # Arquivo está sincronizando do OneDrive
+                self.log_message("Exibindo mensagem de sincronização", "info")
+                image = self._create_default_thumbnail("Sincronizando\ndo OneDrive...\n\nTente novamente\nem alguns minutos")
+            elif image is None:
+                # Se não conseguiu, usa imagem padrão
+                self.log_message("Usando imagem padrão (arquivo não é ZIP/RAR ou não contém imagens)", "info")
+                image = self._create_default_thumbnail("Prévia não\ndisponível")
+            
+            # Redimensiona mantendo proporção
+            # Tamanho máximo: 200x280
+            image.thumbnail((200, 280), Image.Resampling.LANCZOS)
+            
+            # Converte para formato do Tkinter
+            photo = ImageTk.PhotoImage(image)
+            
+            # Armazena referência para evitar garbage collection
+            self.current_image = photo
+            
+            # Atualiza o label
+            self.thumbnail_label.configure(image=photo, text="")
+            self.log_message("Miniatura exibida com sucesso!", "success")
+            
+        except Exception as e:
+            # Em caso de erro, mostra imagem padrão
+            self.log_message(f"Erro ao exibir miniatura: {e}", "error")
+            try:
+                image = self._create_default_thumbnail("Erro ao\ncarregar")
+                image.thumbnail((200, 280), Image.Resampling.LANCZOS)
+                photo = ImageTk.PhotoImage(image)
+                self.current_image = photo
+                self.thumbnail_label.configure(image=photo, text="")
+            except:
+                self.thumbnail_label.configure(image="", text="Erro ao carregar imagem")
+    
+    def _display_thumbnail_async(self, file_path):
+        """Wrapper para exibir miniatura em thread separada (evita travar interface)."""
+        try:
+            # Mostra mensagem de carregamento
+            self.root.after(0, lambda: self.thumbnail_label.configure(text="Carregando..."))
+            
+            # Executa o processamento da imagem
+            self._display_thumbnail(file_path)
+        except Exception as e:
+            # Em caso de erro, atualiza na thread principal
+            self.root.after(0, lambda: self.thumbnail_label.configure(image="", text="Erro ao carregar"))
         
     def log_message(self, message, tag=None):
         """Adiciona uma mensagem ao log."""
@@ -690,6 +959,11 @@ class RandomFilePickerGUI:
             # Adiciona ao histórico (usa o arquivo original do ZIP se aplicável)
             history_file = file_result.get('zip_path') if file_result.get('is_from_zip') else selected_file
             self.root.after(0, lambda: self.add_to_history(history_file))
+            
+            # Exibe a miniatura do arquivo em uma thread separada
+            # Usa o arquivo do ZIP se aplicável, pois a miniatura está dentro do ZIP
+            thumbnail_file = file_result.get('zip_path') if file_result.get('is_from_zip') else selected_file
+            threading.Thread(target=lambda: self._display_thumbnail_async(thumbnail_file), daemon=True).start()
             
             status_parts = []
             
