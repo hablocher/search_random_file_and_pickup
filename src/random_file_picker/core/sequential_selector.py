@@ -217,7 +217,7 @@ def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_", keyw
     
     Args:
         folder_path: Caminho da pasta
-        exclude_prefix: Prefixo de arquivos a ignorar
+        exclude_prefix: Prefixos de arquivos a ignorar (separados por vírgula)
         keywords: Lista de palavras-chave para filtrar arquivos
         keywords_match_all: Se True, todas as keywords devem estar presentes (AND); se False, ao menos uma (OR)
         ignored_extensions: Lista de extensões a ignorar (ex: ['srt', 'sub'])
@@ -226,6 +226,9 @@ def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_", keyw
         Lista de dicionários com informações das sequências por coleção, ou None se não houver padrão
     """
     files_with_numbers = []
+    
+    # Normaliza prefixos (converte string separada por vírgula em lista)
+    exclude_prefixes = [p.strip() for p in exclude_prefix.split(',')] if exclude_prefix else []
     
     # Normaliza extensões ignoradas
     ignored_ext_set = set()
@@ -240,8 +243,8 @@ def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_", keyw
             
             filename = file_path.name
             
-            # Ignora arquivos com prefixo de exclusão
-            if filename.startswith(exclude_prefix):
+            # Ignora arquivos com prefixos de exclusão
+            if any(filename.startswith(prefix) for prefix in exclude_prefixes):
                 continue
             
             # Ignora arquivos com extensões da lista de ignorados
@@ -415,7 +418,7 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
     
     Args:
         folders: Lista de pastas para buscar
-        exclude_prefix: Prefixo de arquivos a ignorar
+        exclude_prefix: Prefixos de arquivos a ignorar (separados por vírgula)
         use_sequence: Se True, usa lógica de sequência quando detectada
         keywords: Lista de palavras-chave para filtrar arquivos
         keywords_match_all: Se True, todas as keywords devem estar presentes (AND); se False, ao menos uma (OR)
@@ -564,7 +567,7 @@ def _process_file_selection(file_path: str, exclude_prefix: str, keywords: List[
     
     Args:
         file_path: Caminho do arquivo selecionado
-        exclude_prefix: Prefixo a ser excluído
+        exclude_prefix: Prefixos a serem excluídos (separados por vírgula)
         keywords: Lista de palavras-chave para filtrar
         keywords_match_all: Se True, todas as keywords devem estar presentes (AND)
         is_zip_check: Se True, verifica se é ZIP e processa

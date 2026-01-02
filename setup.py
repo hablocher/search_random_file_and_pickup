@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Quick setup script for Random File Picker."""
+"""Quick setup script for Media Finder."""
 
 import subprocess
 import sys
@@ -103,7 +103,7 @@ def show_usage():
 def main():
     """Main setup function."""
     print("="*70)
-    print("🚀 RANDOM FILE PICKER - Setup")
+    print("🚀 MEDIA FINDER - Setup")
     print("="*70)
     
     # Check Python version

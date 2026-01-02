@@ -47,7 +47,7 @@ def list_files_in_zip(zip_path: str, exclude_prefix: str = "_L_", keywords: List
     
     Args:
         zip_path: Caminho do arquivo ZIP
-        exclude_prefix: Prefixo a ser excluído dos resultados
+        exclude_prefix: Prefixos a serem excluídos dos resultados (separados por vírgula)
         keywords: Lista de palavras-chave para filtrar arquivos
         ignored_extensions: Lista de extensões a ignorar (ex: ['srt', 'sub'])
         
@@ -55,6 +55,9 @@ def list_files_in_zip(zip_path: str, exclude_prefix: str = "_L_", keywords: List
         Lista com os nomes dos arquivos válidos dentro do ZIP
     """
     valid_files = []
+    
+    # Normaliza prefixos
+    exclude_prefixes = [p.strip() for p in exclude_prefix.split(',')] if exclude_prefix else []
     
     # Normaliza extensões ignoradas
     ignored_ext_set = set()
@@ -74,8 +77,8 @@ def list_files_in_zip(zip_path: str, exclude_prefix: str = "_L_", keywords: List
                 if file_name.startswith('.'):
                     continue
                 
-                # Verifica prefixo
-                if file_name.startswith(exclude_prefix):
+                # Verifica prefixos
+                if any(file_name.startswith(prefix) for prefix in exclude_prefixes):
                     continue
                 
                 # Filtra por extensões ignoradas
@@ -169,13 +172,13 @@ def cleanup_temp_dir(temp_dir: str):
 def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessibility: bool = False, keywords: List[str] = None, use_cache: bool = True, process_zip: bool = False, keywords_match_all: bool = False, ignored_extensions: List[str] = None) -> List[str]:
     """
     Coleta todos os arquivos das pastas e subpastas informadas,
-    excluindo arquivos que começam com o prefixo especificado.
+    excluindo arquivos que começam com os prefixos especificados.
     Inclui arquivos em nuvem mesmo que não estejam sincronizados localmente.
     Ignora pastas que começam com '.' (pastas ocultas).
     
     Args:
         folders: Lista de caminhos das pastas para buscar
-        exclude_prefix: Prefixo a ser excluído dos resultados
+        exclude_prefix: Prefixos a serem excluídos dos resultados (separados por vírgula)
         check_accessibility: Se True, verifica se arquivos estão acessíveis localmente
         keywords: Lista de palavras-chave. Se fornecida, apenas arquivos que contenham
                  ao menos uma palavra-chave no nome serão incluídos.
@@ -613,7 +616,7 @@ def main():
     ]
     
     print("=" * 70)
-    print("SELECIONADOR ALEATÓRIO DE ARQUIVOS")
+    print("MEDIA FINDER")
     print("Inclui arquivos em nuvem não sincronizados")
     print("=" * 70)
     print(f"\nPastas: {folders_to_search}")

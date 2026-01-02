@@ -10,7 +10,7 @@ from random_file_picker.core.sequential_selector import select_file_with_sequenc
 def main():
     """Main CLI function."""
     parser = argparse.ArgumentParser(
-        description="Random File Picker - Seleção inteligente de arquivos"
+        description="Media Finder - Seleção inteligente de arquivos"
     )
     parser.add_argument(
         "folders",
@@ -55,7 +55,7 @@ def main():
             sys.exit(1)
     
     print("=" * 70)
-    print("RANDOM FILE PICKER")
+    print("MEDIA FINDER")
     print("=" * 70)
     print(f"\nPastas: {len(args.folders)}")
     print(f"Prefixo de exclusão: {args.exclude_prefix}")

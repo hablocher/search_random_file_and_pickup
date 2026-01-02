@@ -1,4 +1,4 @@
-# 🎲 Random File Picker
+# � Media Finder
 
 > Aplicação Python com interface gráfica moderna que seleciona arquivos de forma inteligente com detecção automática de sequências, cache inteligente e prévia de thumbnails.
 

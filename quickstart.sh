@@ -2,7 +2,7 @@
 # Quick start script for Linux/macOS
 
 echo "===================================="
-echo "Random File Picker - Quick Start"
+echo "Media Finder - Quick Start"
 echo "===================================="
 echo ""
 

@@ -30,7 +30,7 @@ from random_file_picker.core.file_analyzer import FileAnalyzer
 class RandomFilePickerGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("🎲 Selecionador Aleatório de Arquivos")
+        self.root.title("🎬 Media Finder")
         self.root.geometry("1200x750")
         self.root.minsize(900, 600)
         
@@ -63,7 +63,7 @@ class RandomFilePickerGUI:
         self.spinning_animation_job = None
         
         # Inicializa variáveis de configuração antes de setup_ui
-        self.exclude_prefix_var = tk.StringVar(value="_L_")
+        self.exclude_prefix_var = tk.StringVar(value="_L_,_W_")
         self.history_limit_var = tk.IntVar(value=5)
         self.keywords_var = tk.StringVar(value="")
         self.keywords_match_all_var = tk.BooleanVar(value=False)
@@ -167,7 +167,7 @@ class RandomFilePickerGUI:
         title_container = ttk.Frame(title_frame)
         title_container.pack()
         
-        title_label = ttk.Label(title_container, text="🎲 Selecionador Aleatório de Arquivos", 
+        title_label = ttk.Label(title_container, text="🎬 Media Finder", 
                                font=('Segoe UI', 16, 'bold'),
                                foreground='#2c3e50')
         title_label.grid(row=0, column=0, padx=(0, 10))
@@ -454,15 +454,15 @@ class RandomFilePickerGUI:
         options_frame.bind("<Configure>", update_scroll_region)
         canvas.bind("<Configure>", on_canvas_configure)
         
-        # Linha 0: Prefixo de arquivo
-        ttk.Label(options_frame, text="📝 Prefixo de lido:", 
+        # Linha 0: Prefixos de arquivo
+        ttk.Label(options_frame, text="📝 Prefixos:", 
                  font=('Segoe UI', 9)).grid(row=0, column=0, sticky=tk.W, padx=(0, 5), pady=(5, 2))
         exclude_prefix_entry = ttk.Entry(options_frame, textvariable=self.exclude_prefix_var, 
-                                             width=15, font=('Segoe UI', 9))
+                                             width=30, font=('Segoe UI', 9))
         exclude_prefix_entry.grid(row=0, column=1, sticky=tk.W, pady=(5, 2))
         
         info_label = ttk.Label(options_frame, 
-                              text="   ℹ️ Pastas com '.' são ignoradas automaticamente",
+                              text="   ℹ️ Ex: _L_,_W_ (separados por vírgula). Pastas com '.' são ignoradas automaticamente",
                               font=('Segoe UI', 8, 'italic'),
                               foreground='#7f8c8d')
         info_label.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(2, 8))
@@ -1646,7 +1646,7 @@ class RandomFilePickerGUI:
             self.log_message("=" * 70)
             self.log_message("Iniciando busca de arquivos...", "info")
             self.log_message(f"Pastas: {len(folders)}", "info")
-            self.log_message(f"Prefixo de arquivo lido: {exclude_prefix}", "info")
+            self.log_message(f"Prefixos: {exclude_prefix}", "info")
             self.log_message(f"Ignorando pastas com prefixo: .", "info")
             self.log_message(f"Seleção sequencial: {'Ativada' if use_sequence else 'Desativada'}", "info")
             self.log_message(f"Processar arquivos ZIP: {'Ativado' if process_zip else 'Desativado'}", "info")
@@ -1918,7 +1918,7 @@ class RandomFilePickerGUI:
                 self.log_message(f"Configuração carregada: {len(folders)} pasta(s)", "success")
             
             # Restaurar outras configurações
-            self.exclude_prefix_var.set(config.get("exclude_prefix", "_L_"))
+            self.exclude_prefix_var.set(config.get("exclude_prefix", "_L_,_W_"))
             self.open_folder_var.set(config.get("open_folder", True))
             self.open_file_var.set(config.get("open_file", True))
             self.use_sequence_var.set(config.get("use_sequence", True))

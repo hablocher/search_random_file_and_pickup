@@ -1,5 +1,5 @@
 """
-Random File Picker - Seleção inteligente de arquivos com interface gráfica.
+Media Finder - Seleção inteligente de arquivos com interface gráfica.
 
 Um programa para seleção aleatória e sequencial de arquivos com suporte a:
 - Seleção aleatória e sequencial

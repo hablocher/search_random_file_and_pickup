@@ -1,7 +1,7 @@
 @echo off
 REM Quick start script for Windows
 echo ====================================
-echo Random File Picker - Quick Start
+echo Media Finder - Quick Start
 echo ====================================
 echo.
 
