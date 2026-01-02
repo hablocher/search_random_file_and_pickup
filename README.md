@@ -34,7 +34,7 @@ Programa Python com interface gráfica que seleciona arquivos de forma inteligen
 
 ### Automação
 - **Abrir pasta automaticamente** após seleção (opcional)
-- **Abrir arquivo automaticamente** com o aplicativo padrão (opcional)
+- **Abrir arquivo automaticamente** com o aplicativo padrão (ativado por padrão)
 - **Detecção de aplicativos**: Biblioteca específica por SO (Windows/Linux) que identifica aplicativo associado ao tipo de arquivo
 - **Persistência de configurações**: Todas as preferências são salvas automaticamente
 - **Detecção de mudanças**: Alerta se há configurações não salvas ao fechar
@@ -128,7 +128,7 @@ tracker.clear_folder(r"C:\Comics")
    - Limite de histórico (1-50 arquivos)
    - **Palavras-chave** (máx. 3, separadas por vírgula): Filtra arquivos que contenham ao menos UMA das palavras
    - Checkbox: Abrir pasta automaticamente
-   - Checkbox: Abrir arquivo automaticamente
+   - Checkbox: Abrir arquivo automaticamente (ativado por padrão)
    - Checkbox: Usar seleção sequencial
    - **Checkbox: Processar arquivos ZIP** - Quando ativado, abre ZIPs e busca dentro deles; quando desativado, trata ZIPs como arquivos normais
 3. **Log / Resultado**: Exibe informações detalhadas sobre a busca e seleção
@@ -191,7 +191,7 @@ Armazena todas as preferências do usuário:
   "folders": ["C:\\Pasta1", "D:\\Pasta2"],
   "exclude_prefix": "_L_",
   "open_folder": true,
-  "open_file": false,
+  "open_file": true,
   "use_sequence": true,
   "process_zip": true,
   "history_limit": 5,
