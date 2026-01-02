@@ -10,6 +10,7 @@ import threading
 import zipfile
 import rarfile
 import io
+import fitz  # PyMuPDF
 from PIL import Image, ImageTk
 from random_file_picker.core.file_picker import pick_random_file, open_folder, pick_random_file_with_zip_support, cleanup_temp_dir
 from random_file_picker.core.sequential_selector import (
@@ -550,8 +551,15 @@ class RandomFilePickerGUI:
     def _try_extract_from_zip(self, file_path):
         """Tenta extrair imagem de arquivo ZIP."""
         try:
-            self.log_message("Tentando abrir como arquivo ZIP...", "info")
-            with zipfile.ZipFile(file_path, 'r') as zip_file:
+            # Primeiro, carrega o arquivo completo na memória para forçar download da nuvem
+            self.log_message("Carregando arquivo ZIP completo na memória...", "info")
+            with open(file_path, 'rb') as f:
+                zip_data = f.read()
+            self.log_message(f"✓ Arquivo carregado: {len(zip_data)} bytes", "success")
+            
+            # Agora processa o ZIP da memória
+            self.log_message("Processando arquivo ZIP...", "info")
+            with zipfile.ZipFile(io.BytesIO(zip_data), 'r') as zip_file:
                 file_list = zip_file.namelist()
                 self.log_message(f"✓ Arquivo ZIP aberto! Arquivos encontrados: {len(file_list)}", "success")
                 
@@ -584,8 +592,15 @@ class RandomFilePickerGUI:
     def _try_extract_from_rar(self, file_path):
         """Tenta extrair imagem de arquivo RAR."""
         try:
-            self.log_message("Tentando abrir como arquivo RAR...", "info")
-            archive_file = rarfile.RarFile(file_path, 'r')
+            # Primeiro, carrega o arquivo completo na memória para forçar download da nuvem
+            self.log_message("Carregando arquivo RAR completo na memória...", "info")
+            with open(file_path, 'rb') as f:
+                rar_data = f.read()
+            self.log_message(f"✓ Arquivo carregado: {len(rar_data)} bytes", "success")
+            
+            # Agora processa o RAR da memória
+            self.log_message("Processando arquivo RAR...", "info")
+            archive_file = rarfile.RarFile(io.BytesIO(rar_data), 'r')
             file_list = archive_file.namelist()
             self.log_message(f"✓ Arquivo RAR aberto! Arquivos encontrados: {len(file_list)}", "success")
             
@@ -624,6 +639,47 @@ class RandomFilePickerGUI:
             self.log_message(f"✗ Erro ao processar RAR: {e}", "error")
             return None
     
+    def _try_extract_from_pdf(self, file_path):
+        """Tenta extrair primeira página de arquivo PDF como imagem."""
+        try:
+            # Primeiro, carrega o arquivo completo na memória para forçar download da nuvem
+            self.log_message("Carregando arquivo PDF completo na memória...", "info")
+            with open(file_path, 'rb') as f:
+                pdf_data = f.read()
+            self.log_message(f"✓ Arquivo carregado: {len(pdf_data)} bytes", "success")
+            
+            # Agora processa o PDF da memória
+            self.log_message("Processando arquivo PDF...", "info")
+            doc = fitz.open(stream=pdf_data, filetype="pdf")
+            
+            if len(doc) == 0:
+                self.log_message("✗ PDF não contém páginas", "warning")
+                doc.close()
+                return None
+            
+            self.log_message(f"✓ Arquivo PDF aberto! Páginas encontradas: {len(doc)}", "success")
+            
+            # Pega a primeira página
+            page = doc[0]
+            
+            # Renderiza a página como imagem
+            # zoom = 2 para melhor qualidade
+            mat = fitz.Matrix(2, 2)
+            pix = page.get_pixmap(matrix=mat)
+            
+            # Converte pixmap para PIL Image
+            img_data = pix.tobytes("png")
+            image = Image.open(io.BytesIO(img_data))
+            
+            self.log_message(f"✓ Primeira página extraída: {image.size}", "success")
+            
+            doc.close()
+            return image
+            
+        except Exception as e:
+            self.log_message(f"✗ Erro ao processar PDF: {e}", "error")
+            return None
+    
     def _extract_first_image_from_zip(self, file_path):
         """Extrai a primeira imagem (jpg/png) de um arquivo compactado (ZIP/RAR).
         
@@ -644,6 +700,12 @@ class RandomFilePickerGUI:
             
             # Tenta extrair baseado na extensão e formato detectado
             file_ext = Path(file_path).suffix.lower()
+            
+            # PDF - verifica primeiro se é PDF
+            if file_ext == '.pdf':
+                result = self._try_extract_from_pdf(file_path)
+                if result is not None:
+                    return result
             
             # Prioriza RAR se extensão ou detecção indicar
             if file_ext in ['.rar', '.cbr'] or detected_format in ['rar', 'rar5']:
@@ -960,10 +1022,13 @@ class RandomFilePickerGUI:
             history_file = file_result.get('zip_path') if file_result.get('is_from_zip') else selected_file
             self.root.after(0, lambda: self.add_to_history(history_file))
             
-            # Exibe a miniatura do arquivo em uma thread separada
+            # Exibe a miniatura ANTES de abrir pasta/arquivo (BLOQUEANTE)
+            # Força o download completo do arquivo da nuvem antes de prosseguir
             # Usa o arquivo do ZIP se aplicável, pois a miniatura está dentro do ZIP
             thumbnail_file = file_result.get('zip_path') if file_result.get('is_from_zip') else selected_file
-            threading.Thread(target=lambda: self._display_thumbnail_async(thumbnail_file), daemon=True).start()
+            self.log_message("\n=== Carregando e extraindo miniatura (aguarde)...", "info")
+            self._display_thumbnail(thumbnail_file)
+            self.log_message("=== Miniatura processada, prosseguindo com ações\n", "success")
             
             status_parts = []
             
