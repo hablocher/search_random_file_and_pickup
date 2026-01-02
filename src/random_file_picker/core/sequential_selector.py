@@ -110,7 +110,8 @@ def extract_number_from_filename(filename: str) -> Optional[Tuple[float, str]]:
                 continue
     
     # Tenta números romanos (I, II, III, IV, V, etc.)
-    roman_pattern = r'\b(M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))\b'
+    # Padrão corrigido: requer pelo menos 1 caractere romano válido
+    roman_pattern = r'\b(M{1,3}|CM|CD|D?C{1,3}|XC|XL|L?X{1,3}|IX|IV|V?I{1,3})\b'
     match = re.search(roman_pattern, name_without_ext, re.IGNORECASE)
     if match:
         roman_str = match.group(1).upper()
@@ -121,9 +122,10 @@ def extract_number_from_filename(filename: str) -> Optional[Tuple[float, str]]:
     # Tenta encontrar qualquer número no nome
     numbers = re.findall(r'\d+', name_without_ext)
     if numbers:
-        # Usa o primeiro número encontrado
+        # Usa o ÚLTIMO número encontrado (geralmente é o número da sequência)
+        # Exemplo: "Marvel Team-Up v1 081" -> ['1', '081'] -> usa '081'
         try:
-            return (float(numbers[0]), 'fallback')
+            return (float(numbers[-1]), 'fallback')
         except:
             pass
     
@@ -171,24 +173,36 @@ def extract_collection_name(filename: str) -> str:
     name_without_ext = Path(filename).stem
     
     # Padrões para remover (em ordem de prioridade)
+    # Importante: Padrões mais específicos primeiro, genéricos por último
     patterns_to_remove = [
         r'#\d+.*$',  # Remove #001 e tudo depois
         r'\d+\s*(?:de|of|/)\s*\d+.*$',  # Remove "01 de 10" e tudo depois
         r'(?:cap(?:itulo)?|ch(?:apter)?)[.\s-]*\d+.*$',  # Remove Chapter 1 e tudo depois
-        r'(?:vol(?:ume)?)[.\s-]*\d+.*$',  # Remove Volume 1 e tudo depois
         r'(?:part(?:e)?)[.\s-]*\d+.*$',  # Remove Parte 1 e tudo depois
         r'(?:ep(?:isode)?|episodio)[.\s-]*\d+.*$',  # Remove Episódio 1 e tudo depois
-        r'\b(M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))\b.*$',  # Remove romanos
-        r'\d+.*$',  # Remove números no final
+        # Padrão especial para séries com "v1 101" (mantém "v1", remove "101")
+        r'(v\d+)\s+\d+.*$',  # Remove números após v1 101, v2 050, etc (mantém apenas o v1/v2)
+        # Números romanos (requer pelo menos 1 caractere romano válido)
+        r'\s+\b(M{1,3}|CM|CD|D?C{1,3}|XC|XL|L?X{1,3}|IX|IV|V?I{1,3})\b.*$',
+        # Padrão genérico para números decimais isolados no final (ex: "Serie 001" -> "Serie")
+        r'\s+\d+.*$',  # Remove espaço + números no final
     ]
     
     collection_name = name_without_ext
     
     for pattern in patterns_to_remove:
-        match = re.search(pattern, collection_name, re.IGNORECASE)
-        if match:
-            collection_name = collection_name[:match.start()].strip()
-            break
+        # Para o padrão especial de "v\d+ \d+", captura o v\d+ e mantém
+        if r'(v\d+)' in pattern:
+            match = re.search(pattern, collection_name, re.IGNORECASE)
+            if match:
+                # Mantém tudo até o final do grupo capturado (v1, v2, etc)
+                collection_name = collection_name[:match.end(1)].strip()
+                break
+        else:
+            match = re.search(pattern, collection_name, re.IGNORECASE)
+            if match:
+                collection_name = collection_name[:match.start()].strip()
+                break
     
     # Remove caracteres comuns de separação no final
     collection_name = re.sub(r'[\s\-_.#]+$', '', collection_name)
@@ -265,7 +279,10 @@ def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_", keyw
         
         # Precisa ter pelo menos 2 arquivos para considerar uma sequência
         if len(files_with_numbers) < 2:
+            print(f"[Análise de Sequência] Pasta '{folder_path.name}': {len(files_with_numbers)} arquivo(s) com numeração - insuficiente para sequência")
             return None
+        
+        print(f"[Análise de Sequência] Pasta '{folder_path.name}': {len(files_with_numbers)} arquivos com numeração detectada")
         
         # Agrupa arquivos por coleção
         collections = {}
@@ -275,12 +292,15 @@ def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_", keyw
                 collections[collection_name] = []
             collections[collection_name].append(item)
         
+        print(f"[Análise de Sequência] {len(collections)} coleção(ões) encontrada(s): {list(collections.keys())}")
+        
         # Analisa cada coleção separadamente
         valid_sequences = []
         
         for collection_name, collection_files in collections.items():
             # Precisa ter pelo menos 2 arquivos na coleção
             if len(collection_files) < 2:
+                print(f"[Análise de Sequência] Coleção '{collection_name}': apenas {len(collection_files)} arquivo - ignorando")
                 continue
             
             # Verifica se há um tipo dominante de numeração na coleção
@@ -291,6 +311,7 @@ def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_", keyw
             
             # Tipo mais comum
             dominant_type = max(type_counts.items(), key=lambda x: x[1])[0]
+            print(f"[Análise de Sequência] Coleção '{collection_name}': tipo de ordenação dominante = {dominant_type}")
             
             # Filtra apenas arquivos do tipo dominante
             sequence_files = [f for f in collection_files if f['type'] == dominant_type]
@@ -300,6 +321,7 @@ def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_", keyw
             
             # Adiciona a sequência válida
             if len(sequence_files) >= 2:
+                print(f"[Análise de Sequência] Coleção '{collection_name}': ✓ Sequência válida com {len(sequence_files)} arquivos ({sequence_files[0]['number']} a {sequence_files[-1]['number']})")
                 valid_sequences.append({
                     'folder': str(folder_path),
                     'collection': collection_name,
@@ -309,6 +331,11 @@ def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_", keyw
                 })
         
         # Retorna as sequências válidas (pode haver múltiplas coleções)
+        if valid_sequences:
+            print(f"[Análise de Sequência] Resultado: {len(valid_sequences)} sequência(s) válida(s) identificada(s)")
+        else:
+            print(f"[Análise de Sequência] Resultado: Nenhuma sequência válida identificada")
+        
         return valid_sequences if valid_sequences else None
         
     except Exception as e:
@@ -317,7 +344,7 @@ def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_", keyw
     return None
 
 
-def get_next_unread_file(sequences: List[Dict], tracker: SequentialFileTracker, keywords: List[str] = None, keywords_match_all: bool = False) -> Optional[Tuple[str, Dict]]:
+def get_next_unread_file(sequences: List[Dict], tracker: SequentialFileTracker, keywords: List[str] = None, keywords_match_all: bool = False) -> Optional[Tuple[str, Dict, Dict]]:
     """
     Retorna o próximo arquivo não lido em uma das sequências.
     Seleciona aleatoriamente uma coleção com arquivos não lidos.
@@ -329,8 +356,10 @@ def get_next_unread_file(sequences: List[Dict], tracker: SequentialFileTracker, 
         keywords_match_all: Se True, todas as keywords devem estar presentes (AND); se False, ao menos uma (OR)
         
     Returns:
-        Tupla (caminho do arquivo, info da sequência) ou None se não houver
+        Tupla (caminho do arquivo, info da sequência, info do arquivo) ou None se não houver
     """
+    print(f"[Seleção Sequencial] Buscando próximo arquivo não lido em {len(sequences)} sequência(s)...")
+    
     if not sequences:
         return None
     
@@ -368,17 +397,19 @@ def get_next_unread_file(sequences: List[Dict], tracker: SequentialFileTracker, 
             break  # Encontrou, passa para próxima coleção
     
     if not collections_with_unread:
+        print(f"[Seleção Sequencial] Todos os arquivos das sequências já foram lidos")
         return None
     
     # Seleciona aleatoriamente uma coleção com arquivos não lidos
     selected = random.choice(collections_with_unread)
+    print(f"[Seleção Sequencial] ✓ Arquivo não lido encontrado: '{selected['file_info']['filename']}' (#{selected['file_info']['number']})\")")
     
     return selected['next_file'], selected['sequence'], selected['file_info']
 
 
 def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_L_", 
                                     use_sequence: bool = True, keywords: List[str] = None,
-                                    keywords_match_all: bool = False, process_zip: bool = True, use_cache: bool = True, ignored_extensions: List[str] = None) -> Tuple[Dict, Dict]:
+                                    keywords_match_all: bool = False, process_zip: bool = True, use_cache: bool = True, ignored_extensions: List[str] = None, zip_recursion_level: int = 0) -> Tuple[Dict, Dict]:
     """
     Seleciona um arquivo considerando lógica de sequência, com suporte a ZIP.
     
@@ -474,7 +505,7 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
                     }
                     
                     # Verifica se é um arquivo ZIP
-                    file_result = _process_file_selection(next_file, exclude_prefix, keywords, keywords_match_all, is_zip_check=process_zip)
+                    file_result = _process_file_selection(next_file, exclude_prefix, keywords, keywords_match_all, is_zip_check=process_zip, ignored_extensions=ignored_extensions, zip_recursion_level=zip_recursion_level)
                     
                     if file_result:
                         tracker.mark_as_read(next_file)
@@ -519,7 +550,7 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
                 selected = next_file
         
         # Verifica se é um arquivo ZIP
-        file_result = _process_file_selection(selected, exclude_prefix, keywords, keywords_match_all, is_zip_check=process_zip)
+        file_result = _process_file_selection(selected, exclude_prefix, keywords, keywords_match_all, is_zip_check=process_zip, ignored_extensions=ignored_extensions, zip_recursion_level=zip_recursion_level)
         
         if file_result:
             return file_result, info
@@ -527,9 +558,9 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
     return {'file_path': None, 'is_from_zip': False, 'zip_path': None, 'file_in_zip': None, 'temp_dir': None}, info
 
 
-def _process_file_selection(file_path: str, exclude_prefix: str, keywords: List[str], keywords_match_all: bool = False, is_zip_check: bool = True) -> Optional[Dict]:
+def _process_file_selection(file_path: str, exclude_prefix: str, keywords: List[str], keywords_match_all: bool = False, is_zip_check: bool = True, ignored_extensions: List[str] = None, zip_recursion_level: int = 0) -> Optional[Dict]:
     """
-    Processa a seleção de um arquivo, verificando se é ZIP e extraindo se necessário.
+    Processa a seleção de um arquivo, verificando se é ZIP e fazendo busca recursiva se necessário.
     
     Args:
         file_path: Caminho do arquivo selecionado
@@ -537,12 +568,17 @@ def _process_file_selection(file_path: str, exclude_prefix: str, keywords: List[
         keywords: Lista de palavras-chave para filtrar
         keywords_match_all: Se True, todas as keywords devem estar presentes (AND)
         is_zip_check: Se True, verifica se é ZIP e processa
+        ignored_extensions: Lista de extensões a ignorar
         
     Returns:
         Dicionário com informações do arquivo ou None se não for válido
     """
-    # Se não for ZIP ou não devemos verificar, retorna arquivo normal
-    if not is_zip_check or not file_path.lower().endswith('.zip'):
+    # Verifica se é arquivo compactado
+    file_ext = file_path.lower()
+    is_archive = file_ext.endswith('.zip') or file_ext.endswith('.rar')
+    
+    # Se não for arquivo compactado ou não devemos verificar, retorna arquivo normal
+    if not is_zip_check or not is_archive:
         return {
             'file_path': file_path,
             'is_from_zip': False,
@@ -551,18 +587,9 @@ def _process_file_selection(file_path: str, exclude_prefix: str, keywords: List[
             'temp_dir': None
         }
     
-    # É um arquivo ZIP, processa
-    print(f"Arquivo ZIP detectado: {os.path.basename(file_path)}")
-    print("Explorando conteúdo do ZIP...")
-    
-    files_in_zip = list_files_in_zip(file_path, exclude_prefix, keywords, keywords_match_all)
-    
-    if not files_in_zip:
-        if keywords:
-            print(f"Nenhum arquivo válido encontrado no ZIP com as palavras-chave especificadas.")
-        else:
-            print(f"Nenhum arquivo válido encontrado no ZIP.")
-        # Retorna o próprio ZIP
+    # Verifica limite de recursão (máximo 3 níveis)
+    if zip_recursion_level >= 3:
+        print(f"Limite de recursão atingido (3 níveis). Retornando arquivo: {os.path.basename(file_path)}")
         return {
             'file_path': file_path,
             'is_from_zip': False,
@@ -571,27 +598,95 @@ def _process_file_selection(file_path: str, exclude_prefix: str, keywords: List[
             'temp_dir': None
         }
     
-    # Seleciona aleatoriamente um arquivo do ZIP
-    selected_file_in_zip = random.choice(files_in_zip)
-    print(f"Arquivo selecionado do ZIP: {os.path.basename(selected_file_in_zip)}")
+    # É um arquivo ZIP/RAR, faz busca recursiva completa
+    archive_type = "ZIP" if file_ext.endswith('.zip') else "RAR"
+    print(f"Arquivo {archive_type} detectado: {os.path.basename(file_path)} (Nível de recursão: {zip_recursion_level + 1}/3)")
+    print(f"Explorando conteúdo do {archive_type}...")
     
-    # Cria diretório temporário
+    # Cria diretório temporário e extrai TODO o conteúdo do ZIP
     temp_dir = get_temp_extraction_dir()
     
     try:
-        # Extrai o arquivo
-        print(f"Extraindo para pasta temporária...")
-        extracted_path = extract_file_from_zip(file_path, selected_file_in_zip, temp_dir)
+            print(f"Extraindo TODO o conteúdo do {archive_type} para pasta temporária...")
+            
+            # Extrai todos os arquivos do arquivo compactado
+            if file_ext.endswith('.zip'):
+                import zipfile
+                with zipfile.ZipFile(file_path, 'r') as zip_file:
+                    zip_file.extractall(temp_dir)
+            else:  # .rar
+                try:
+                    import rarfile
+                    with rarfile.RarFile(file_path, 'r') as rar_file:
+                        rar_file.extractall(temp_dir)
+                except ImportError:
+                    print("Aviso: Biblioteca 'rarfile' não instalada. Instale com: pip install rarfile")
+                    print("Tratando RAR como arquivo normal.")
+                    cleanup_temp_dir(temp_dir)
+                    return {
+                        'file_path': file_path,
+                        'is_from_zip': False,
+                        'zip_path': None,
+                        'file_in_zip': None,
+                        'temp_dir': None
+                    }
+            
+            print(f"✓ {archive_type} extraído completamente")
+            print(f"Iniciando busca recursiva dentro do {archive_type} (aplicando todas as regras)...")
+            
+            # BUSCA RECURSIVA SEQUENCIAL: Trata a pasta temporária como se fosse a única pasta configurada
+            # Chama recursivamente com a pasta temp (use_cache=False para não cachear temp)
+            result, result_info = select_file_with_sequence_logic(
+                folders=[temp_dir],
+                exclude_prefix=exclude_prefix,
+                use_sequence=True,  # Mantém lógica de sequência
+                keywords=keywords,
+                keywords_match_all=keywords_match_all,
+                process_zip=is_zip_check,  # Mantém habilitado para processar ZIPs dentro de ZIPs
+                use_cache=False,  # NÃO cacheia arquivos temporários
+                ignored_extensions=ignored_extensions,
+                zip_recursion_level=zip_recursion_level + 1  # Incrementa nível de recursão
+            )
         
-        return {
-            'file_path': extracted_path,
-            'is_from_zip': True,
-            'zip_path': file_path,
-            'file_in_zip': selected_file_in_zip,
-            'temp_dir': temp_dir
-        }
+            # Se a busca recursiva retornou um arquivo
+            if result and result['file_path']:
+                if result['is_from_zip']:
+                    # ZIP dentro de ZIP - mantém temp_dir do original
+                    return {
+                        'file_path': result['file_path'],
+                        'is_from_zip': True,
+                        'zip_path': file_path,  # ZIP original
+                        'file_in_zip': os.path.relpath(result['file_path'], temp_dir),
+                        'temp_dir': temp_dir  # Mantém o diretório temporário do ZIP original
+                    }
+                else:
+                    # Arquivo encontrado diretamente no ZIP
+                    return {
+                        'file_path': result['file_path'],
+                        'is_from_zip': True,
+                        'zip_path': file_path,
+                        'file_in_zip': os.path.relpath(result['file_path'], temp_dir),
+                        'temp_dir': temp_dir
+                    }
+            else:
+                # Nenhum arquivo válido encontrado
+                cleanup_temp_dir(temp_dir)
+                if keywords:
+                    print(f"Nenhum arquivo válido encontrado no ZIP com as palavras-chave especificadas.")
+                else:
+                    print(f"Nenhum arquivo válido encontrado no ZIP.")
+                # Retorna o próprio ZIP
+                return {
+                    'file_path': file_path,
+                    'is_from_zip': False,
+                'zip_path': None,
+                'file_in_zip': None,
+                'temp_dir': None
+            }
+            
     except Exception as e:
-        print(f"Erro ao extrair arquivo do ZIP: {e}")
+        print(f"Erro ao processar ZIP: {e}")
+        cleanup_temp_dir(temp_dir)
         # Retorna o próprio ZIP em caso de erro
         return {
             'file_path': file_path,

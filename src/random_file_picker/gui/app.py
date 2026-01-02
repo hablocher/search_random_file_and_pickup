@@ -29,14 +29,12 @@ from random_file_picker.core.file_analyzer import FileAnalyzer
 
 class RandomFilePickerGUI:
     def __init__(self, root):
-        print("[DEBUG __init__] INICIANDO RandomFilePickerGUI")
         self.root = root
         self.root.title("Selecionador Aleatório de Arquivos")
         self.root.geometry("800x600")
         self.root.minsize(600, 400)
         
         self.config_file = Path.cwd() / "config.json"
-        print(f"[DEBUG __init__] config_file = {self.config_file}")
         self.is_running = False
         self.config_changed = False
         self.initial_config = {}
@@ -44,6 +42,7 @@ class RandomFilePickerGUI:
         self.last_opened_folder = None  # Última pasta aberta
         self.current_image = None  # Referência para imagem atual (evita garbage collection)
         self.file_data_buffer = None  # Buffer reutilizável para carregar arquivos (evita vazamento de memória)
+        self.temp_directories = []  # Lista de diretórios temporários criados durante a sessão
         
         # Controle de animação
         self.loading_animation_running = False
@@ -69,9 +68,7 @@ class RandomFilePickerGUI:
             tmdb_api_key=tmdb_api_key
         )
         self.store_initial_config()
-        print(f"[DEBUG __init__] Após store_initial_config - use_cache_var.get() = {self.use_cache_var.get()}")
         self.setup_change_tracking()
-        print(f"[DEBUG __init__] Após setup_change_tracking - use_cache_var.get() = {self.use_cache_var.get()}")
         self.setup_keyboard_shortcuts()
         
         # Configura handler para fechar a janela
@@ -216,7 +213,7 @@ class RandomFilePickerGUI:
         self.history_limit_spinbox.grid(row=2, column=1, sticky=tk.W)
         
         # Linha 3-5: Palavras-chave
-        ttk.Label(options_frame, text="Palavras-chave (máx. 3, separadas por vírgula):").grid(
+        ttk.Label(options_frame, text="Palavras-chave (máx. 5, separadas por vírgula):").grid(
             row=3, column=0, columnspan=2, sticky=tk.W, pady=(10, 2))
         self.keywords_var = tk.StringVar(value="")
         self.keywords_entry = ttk.Entry(options_frame, textvariable=self.keywords_var, width=40)
@@ -436,14 +433,14 @@ class RandomFilePickerGUI:
         return list(self.folders_listbox.get(0, tk.END))
     
     def get_keywords_list(self):
-        """Retorna a lista de palavras-chave (máximo 3)."""
+        """Retorna a lista de palavras-chave (máximo 5)."""
         text = self.keywords_var.get().strip()
         if not text:
             return []
         # Separa por vírgula e limpa espaços
         keywords = [kw.strip().lower() for kw in text.split(",") if kw.strip()]
-        # Limita a 3 palavras-chave
-        return keywords[:3]
+        # Limita a 5 palavras-chave
+        return keywords[:5]
     
     def get_ignored_extensions_list(self):
         """Retorna a lista de extensões a ignorar."""
@@ -488,6 +485,28 @@ class RandomFilePickerGUI:
             self.config_changed = changed
             self.update_save_button_state()
     
+    def _on_use_cache_changed(self):
+        """Callback quando a opção use_cache é alterada."""
+        use_cache = self.use_cache_var.get()
+        
+        # Se cache foi desativado, remove a pasta de cache
+        if not use_cache:
+            from ..core.cache_manager import CacheManager
+            cache_manager = CacheManager()
+            
+            try:
+                cache_path = cache_manager.cache_file.parent
+                if cache_path.exists():
+                    import shutil
+                    shutil.rmtree(cache_path)
+                    print(f"Cache removido: {cache_path}")
+                    self.log_message("Cache de arquivos removido.", "info")
+            except Exception as e:
+                print(f"Aviso: Não foi possível remover cache: {e}")
+        
+        # Marca configuração como alterada
+        self.check_config_changed()
+    
     def update_save_button_state(self):
         """Atualiza o estado do botão de salvar."""
         if self.config_changed:
@@ -513,7 +532,7 @@ class RandomFilePickerGUI:
         self.keywords_match_all_var.trace_add('write', lambda *args: self.check_config_changed())
         self.ignored_extensions_var.trace_add('write', lambda *args: self.check_config_changed())
         self.process_zip_var.trace_add('write', lambda *args: self.check_config_changed())
-        self.use_cache_var.trace_add('write', lambda *args: self.check_config_changed())
+        self.use_cache_var.trace_add('write', lambda *args: self._on_use_cache_changed())
         self.enable_cloud_hydration_var.trace_add('write', lambda *args: self.check_config_changed())
     
     def setup_keyboard_shortcuts(self):
@@ -573,9 +592,36 @@ class RandomFilePickerGUI:
             elif response:  # Sim
                 self.save_config()
         
+        # Limpa todas as pastas temporárias antes de fechar
+        self._cleanup_temp_directories()
+        
         self.root.destroy()
     
     # ========== GERENCIAMENTO DE HISTÓRICO ==========
+    
+    def _cleanup_temp_directories(self):
+        """Limpa todas as pastas temporárias criadas durante a sessão."""
+        from ..core.file_picker import cleanup_temp_dir
+        
+        if not self.temp_directories:
+            return
+        
+        print(f"[Limpeza] Removendo {len(self.temp_directories)} pasta(s) temporária(s)...")
+        
+        for temp_dir in self.temp_directories:
+            try:
+                cleanup_temp_dir(temp_dir)
+                print(f"[Limpeza] ✓ Removida: {os.path.basename(temp_dir)}")
+            except Exception as e:
+                print(f"[Limpeza] ⚠ Não foi possível remover '{os.path.basename(temp_dir)}': {e}")
+        
+        self.temp_directories.clear()
+        print(f"[Limpeza] Concluída!")
+    
+    def _register_temp_directory(self, temp_dir: str):
+        """Registra um diretório temporário para limpeza posterior."""
+        if temp_dir and temp_dir not in self.temp_directories:
+            self.temp_directories.append(temp_dir)
     
     def add_to_history(self, file_path):
         """Adiciona um arquivo ao histórico (máximo configurado)."""
@@ -1367,6 +1413,9 @@ class RandomFilePickerGUI:
         """Executa a seleção em uma thread separada."""
         temp_dir_to_cleanup = None
         try:
+            # Limpa pastas temporárias de buscas anteriores
+            self._cleanup_temp_directories()
+            
             # Limpa o buffer de memória no início de cada busca
             self.file_data_buffer = None
             import gc
@@ -1415,6 +1464,12 @@ class RandomFilePickerGUI:
                 selected_file = file_result['file_path']
                 temp_dir_to_cleanup = file_result.get('temp_dir')
                 
+                # Registra pasta temporária para limpeza ao iniciar nova busca ou fechar programa
+                if temp_dir_to_cleanup:
+                    self._register_temp_directory(temp_dir_to_cleanup)
+                    self.log_message(f"\n📁 Pasta temporária criada: {os.path.basename(temp_dir_to_cleanup)}", "info")
+                    self.log_message("   (Será removida ao iniciar nova busca ou fechar o programa)", "info")
+                
                 # Log informações sobre ZIP se aplicável
                 if file_result['is_from_zip']:
                     self.log_message(f"\n✓ Arquivo extraído de ZIP!", "success")
@@ -1447,6 +1502,12 @@ class RandomFilePickerGUI:
                 
                 selected_file = file_result['file_path']
                 temp_dir_to_cleanup = file_result.get('temp_dir')
+                
+                # Registra pasta temporária para limpeza ao iniciar nova busca ou fechar programa
+                if temp_dir_to_cleanup:
+                    self._register_temp_directory(temp_dir_to_cleanup)
+                    self.log_message(f"\n📁 Pasta temporária criada: {os.path.basename(temp_dir_to_cleanup)}", "info")
+                    self.log_message("   (Será removida ao iniciar nova busca ou fechar o programa)", "info")
                 
                 self.log_message(f"\nMétodo: Seleção Aleatória", "info")
                 
@@ -1585,10 +1646,9 @@ class RandomFilePickerGUI:
             # Para a animação se ainda estiver rodando
             self.root.after(0, self._stop_loading_animation)
             
-            # Limpa diretório temporário se foi criado
-            if temp_dir_to_cleanup:
-                self.log_message("\nLimpando arquivos temporários...", "info")
-                cleanup_temp_dir(temp_dir_to_cleanup)
+            # NÃO remove arquivos temporários aqui - eles precisam permanecer
+            # disponíveis para o aplicativo abrir o arquivo
+            # Serão removidos apenas ao iniciar nova busca ou fechar o programa
             
             self.is_running = False
             self.root.after(0, lambda: self.execute_btn.configure(state='normal'))
@@ -1598,9 +1658,6 @@ class RandomFilePickerGUI:
     
     def save_config(self):
         """Salva a configuração atual em um arquivo JSON."""
-        use_cache_value = self.use_cache_var.get()
-        print(f"[DEBUG save_config] use_cache_var.get() = {use_cache_value} (tipo: {type(use_cache_value)})")
-        
         config = {
             "folders": self.get_folders_list(),
             "exclude_prefix": self.exclude_prefix_var.get(),
@@ -1612,12 +1669,11 @@ class RandomFilePickerGUI:
             "keywords_match_all": self.keywords_match_all_var.get(),
             "ignored_extensions": self.ignored_extensions_var.get(),
             "process_zip": self.process_zip_var.get(),
-            "use_cache": use_cache_value,
+            "use_cache": self.use_cache_var.get(),
             "enable_cloud_hydration": self.enable_cloud_hydration_var.get(),
             "file_history": self.file_history,
             "last_opened_folder": self.last_opened_folder
         }
-        print(f"[DEBUG save_config] config['use_cache'] = {config['use_cache']} (tipo: {type(config['use_cache'])})")
         
         success = self.config_manager.save_config(config)
         if not success:
@@ -1626,9 +1682,7 @@ class RandomFilePickerGUI:
     def load_config(self):
         """Carrega a configuração salva."""
         try:
-            print(f"[DEBUG load_config] Carregando config de: {self.config_manager.config_file}")
             config = self.config_manager.load_config()
-            print(f"[DEBUG load_config] Config carregado (raw): {config}")
             config = self.config_manager.validate_config(config)
             
             # Restaurar pastas
@@ -1646,10 +1700,7 @@ class RandomFilePickerGUI:
             self.use_sequence_var.set(config.get("use_sequence", True))
             self.process_zip_var.set(config.get("process_zip", True))
             
-            use_cache_loaded = config.get("use_cache", True)
-            print(f"[DEBUG load_config] use_cache do JSON = {use_cache_loaded} (tipo: {type(use_cache_loaded)})")
-            self.use_cache_var.set(use_cache_loaded)
-            print(f"[DEBUG load_config] Após set, use_cache_var.get() = {self.use_cache_var.get()}")
+            self.use_cache_var.set(config.get("use_cache", True))
             
             self.enable_cloud_hydration_var.set(config.get("enable_cloud_hydration", False))
             self.keywords_var.set(config.get("keywords", ""))
@@ -1676,8 +1727,6 @@ class RandomFilePickerGUI:
             
             # Forçar atualização da UI para refletir os valores carregados
             self.root.update_idletasks()
-            
-            print(f"[DEBUG load_config] FIM do load_config - use_cache_var.get() = {self.use_cache_var.get()}")
             
         except Exception as e:
             self.log_message(f"Erro ao carregar configuração: {e}", "error")

@@ -70,6 +70,10 @@ def list_files_in_zip(zip_path: str, exclude_prefix: str = "_L_", keywords: List
                 
                 file_name = os.path.basename(file_info.filename)
                 
+                # Verifica se o arquivo começa com '.'
+                if file_name.startswith('.'):
+                    continue
+                
                 # Verifica prefixo
                 if file_name.startswith(exclude_prefix):
                     continue
@@ -249,6 +253,10 @@ def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessi
                     if any(part.startswith('.') for part in file_path.relative_to(folder_path).parts[:-1]):
                         continue
                     
+                    # Verifica se o nome do arquivo começa com '.'
+                    if file_path.name.startswith('.'):
+                        continue
+                    
                     # Verifica se o nome do arquivo não começa com o prefixo
                     if file_path.name.startswith(exclude_prefix):
                         continue
@@ -379,7 +387,7 @@ def pick_random_file(folders: List[str], exclude_prefix: str = "_L_", check_acce
 def pick_random_file_with_zip_support(folders: List[str], exclude_prefix: str = "_L_", 
                                        check_accessibility: bool = False, 
                                        keywords: List[str] = None, keywords_match_all: bool = False, process_zip: bool = True,
-                                       use_cache: bool = True, ignored_extensions: List[str] = None) -> dict:
+                                       use_cache: bool = True, ignored_extensions: List[str] = None, zip_recursion_level: int = 0) -> dict:
     """
     Seleciona aleatoriamente um arquivo das pastas informadas, com suporte a arquivos ZIP.
     Se um arquivo ZIP for selecionado, continua a busca dentro do ZIP.
@@ -420,20 +428,14 @@ def pick_random_file_with_zip_support(folders: List[str], exclude_prefix: str = 
     # Seleciona um arquivo aleatório
     selected_file = secure_random.choice(valid_files)
     
-    # Verifica se é um arquivo ZIP e se deve processá-lo
-    if process_zip and selected_file.lower().endswith('.zip'):
-        print(f"Arquivo ZIP detectado: {os.path.basename(selected_file)}")
-        print("Explorando conteúdo do ZIP...")
-        
-        # Lista arquivos dentro do ZIP
-        files_in_zip = list_files_in_zip(selected_file, exclude_prefix, keywords, keywords_match_all, ignored_extensions)
-        
-        if not files_in_zip:
-            if keywords:
-                print(f"Nenhum arquivo válido encontrado no ZIP com as palavras-chave especificadas.")
-            else:
-                print(f"Nenhum arquivo válido encontrado no ZIP.")
-            # Retorna o próprio ZIP se não houver arquivos válidos dentro
+    # Verifica se é um arquivo ZIP/RAR e se deve processá-lo
+    file_ext = selected_file.lower()
+    is_archive = file_ext.endswith('.zip') or file_ext.endswith('.rar')
+    
+    if process_zip and is_archive:
+        # Verifica limite de recursão (máximo 3 níveis)
+        if zip_recursion_level >= 3:
+            print(f"Limite de recursão atingido (3 níveis). Retornando arquivo: {os.path.basename(selected_file)}")
             return {
                 'file_path': selected_file,
                 'is_from_zip': False,
@@ -442,25 +444,149 @@ def pick_random_file_with_zip_support(folders: List[str], exclude_prefix: str = 
                 'temp_dir': None
             }
         
-        # Seleciona aleatoriamente um arquivo do ZIP
-        selected_file_in_zip = secure_random.choice(files_in_zip)
-        print(f"Arquivo selecionado do ZIP: {os.path.basename(selected_file_in_zip)}")
+        archive_type = "ZIP" if file_ext.endswith('.zip') else "RAR"
+        print(f"Arquivo {archive_type} detectado: {os.path.basename(selected_file)} (Nível de recursão: {zip_recursion_level + 1}/3)")
+        print(f"Explorando conteúdo do {archive_type}...")
         
-        # Cria diretório temporário
+        # Cria diretório temporário e extrai TODO o conteúdo do ZIP
         temp_dir = get_temp_extraction_dir()
         
         try:
-            # Extrai o arquivo
-            print(f"Extraindo para pasta temporária...")
-            extracted_path = extract_file_from_zip(selected_file, selected_file_in_zip, temp_dir)
+            print(f"Extraindo TODO o conteúdo do {archive_type} para pasta temporária...")
             
-            return {
-                'file_path': extracted_path,
-                'is_from_zip': True,
-                'zip_path': selected_file,
-                'file_in_zip': selected_file_in_zip,
-                'temp_dir': temp_dir
-            }
+            # Extrai todos os arquivos do arquivo compactado
+            if file_ext.endswith('.zip'):
+                with zipfile.ZipFile(selected_file, 'r') as zip_file:
+                    zip_file.extractall(temp_dir)
+            else:  # .rar
+                try:
+                    import rarfile
+                    with rarfile.RarFile(selected_file, 'r') as rar_file:
+                        rar_file.extractall(temp_dir)
+                except ImportError:
+                    print("Aviso: Biblioteca 'rarfile' não instalada. Instale com: pip install rarfile")
+                    print("Tratando RAR como arquivo normal.")
+                    return {
+                        'file_path': selected_file,
+                        'is_from_zip': False,
+                        'zip_path': None,
+                        'file_in_zip': None,
+                        'temp_dir': None
+                    }
+            
+            print(f"✓ ZIP extraído completamente")
+            print(f"Iniciando busca recursiva dentro do ZIP (aplicando todas as regras)...")
+            
+            # BUSCA RECURSIVA COM ANÁLISE DE SEQUÊNCIA:
+            # Trata a pasta temporária como se fosse a única pasta configurada
+            # Isso garante que:
+            # 1. Sequências dentro do ZIP são detectadas
+            # 2. ZIPs dentro de ZIPs são processados recursivamente
+            # 3. Todas as regras (keywords, extensions, prefixo) são aplicadas
+            # 4. A seleção pode ser aleatória mas respeita sequências se detectadas
+            
+            # Primeiro, tenta detectar sequências na pasta extraída
+            from random_file_picker.core.sequential_selector import (
+                analyze_folder_sequence,
+                get_next_unread_file,
+                SequentialFileTracker
+            )
+            
+            # Analisa se há sequências dentro do ZIP extraído
+            sequences = analyze_folder_sequence(
+                Path(temp_dir), 
+                exclude_prefix, 
+                keywords, 
+                keywords_match_all, 
+                ignored_extensions
+            )
+            
+            file_from_sequence = None
+            
+            if sequences:
+                # Há sequências detectadas dentro do ZIP
+                print(f"✓ Sequência detectada dentro do ZIP!")
+                tracker = SequentialFileTracker()
+                seq_result = get_next_unread_file(sequences, tracker, keywords, keywords_match_all)
+                
+                if seq_result:
+                    # Encontrou próximo arquivo não lido na sequência
+                    next_file, selected_sequence, file_info = seq_result
+                    print(f"Selecionando próximo arquivo não lido: '{os.path.basename(next_file)}'")
+                    print(f"  Coleção: {selected_sequence['collection']}")
+                    print(f"  Tipo de ordenação: {selected_sequence['type']}")
+                    print(f"  Total de arquivos na sequência: {selected_sequence['count']}")
+                    if file_info['number']:
+                        print(f"  Número do arquivo: {file_info['number']}")
+                    
+                    file_from_sequence = next_file
+                    tracker.mark_as_read(next_file)
+            
+            if not file_from_sequence:
+                # Sem sequência detectada ou sem arquivos não lidos
+                # Faz busca recursiva normal (aleatória)
+                print(f"Nenhuma sequência detectada - seleção aleatória dentro do ZIP")
+                result = pick_random_file_with_zip_support(
+                    folders=[temp_dir],
+                    exclude_prefix=exclude_prefix,
+                    check_accessibility=check_accessibility,
+                    keywords=keywords,
+                    keywords_match_all=keywords_match_all,
+                    process_zip=process_zip,  # Mantém habilitado para processar ZIPs dentro de ZIPs
+                    use_cache=False,  # NÃO cacheia arquivos temporários
+                    ignored_extensions=ignored_extensions,
+                    zip_recursion_level=zip_recursion_level + 1  # Incrementa nível de recursão
+                )
+            else:
+                # Arquivo selecionado pela análise de sequência
+                # Verifica se este arquivo também é um ZIP (recursão)
+                file_ext_selected = file_from_sequence.lower()
+                is_nested_archive = file_ext_selected.endswith('.zip') or file_ext_selected.endswith('.rar')
+                
+                if process_zip and is_nested_archive and zip_recursion_level < 2:
+                    # É um ZIP/RAR dentro do ZIP - processa recursivamente
+                    result = pick_random_file_with_zip_support(
+                        folders=[os.path.dirname(file_from_sequence)],
+                        exclude_prefix=exclude_prefix,
+                        check_accessibility=check_accessibility,
+                        keywords=keywords,
+                        keywords_match_all=keywords_match_all,
+                        process_zip=process_zip,
+                        use_cache=False,
+                        ignored_extensions=ignored_extensions,
+                        zip_recursion_level=zip_recursion_level + 1
+                    )
+                else:
+                    # Arquivo final selecionado
+                    result = {
+                        'file_path': file_from_sequence,
+                        'is_from_zip': False,
+                        'zip_path': None,
+                        'file_in_zip': None,
+                        'temp_dir': None
+                    }
+            
+            # Se a busca recursiva retornou um arquivo de dentro de um ZIP aninhado,
+            # precisamos manter a referência do ZIP original
+            if result['is_from_zip']:
+                # ZIP dentro de ZIP - mantém temp_dir do original
+                return {
+                    'file_path': result['file_path'],
+                    'is_from_zip': True,
+                    'zip_path': selected_file,  # ZIP original (o que foi passado para esta função)
+                    'file_in_zip': os.path.relpath(result['file_path'], temp_dir),
+                    'temp_dir': temp_dir  # Mantém o diretório temporário do ZIP original
+                }
+            else:
+                # Arquivo encontrado diretamente no ZIP
+                return {
+                    'file_path': result['file_path'],
+                    'is_from_zip': True,
+                    'zip_path': selected_file,
+                    'file_in_zip': os.path.relpath(result['file_path'], temp_dir),
+                    'temp_dir': temp_dir
+                }
+                
         except Exception as e:
             # Limpa o diretório temporário em caso de erro
             cleanup_temp_dir(temp_dir)
