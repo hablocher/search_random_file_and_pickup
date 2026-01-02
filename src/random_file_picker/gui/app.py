@@ -248,25 +248,25 @@ class RandomFilePickerGUI:
         self.use_sequence_check = ttk.Checkbutton(options_frame, 
                                                   text="Usar seleção sequencial (detecta ordenação em pastas)",
                                                   variable=self.use_sequence_var)
-        self.use_sequence_check.grid(row=8, column=0, columnspan=2, sticky=tk.W, pady=2)
+        self.use_sequence_check.grid(row=9, column=0, columnspan=2, sticky=tk.W, pady=2)
         
         self.process_zip_var = tk.BooleanVar(value=True)
         self.process_zip_check = ttk.Checkbutton(options_frame, 
                                                  text="Processar arquivos ZIP (buscar dentro de arquivos compactados)",
                                                  variable=self.process_zip_var)
-        self.process_zip_check.grid(row=9, column=0, columnspan=2, sticky=tk.W, pady=2)
+        self.process_zip_check.grid(row=10, column=0, columnspan=2, sticky=tk.W, pady=2)
         
         self.use_cache_var = tk.BooleanVar(value=True)
         self.use_cache_check = ttk.Checkbutton(options_frame, 
                                                text="Usar cache de arquivos (busca instantânea após primeira execução)",
                                                variable=self.use_cache_var)
-        self.use_cache_check.grid(row=10, column=0, columnspan=2, sticky=tk.W, pady=2)
+        self.use_cache_check.grid(row=11, column=0, columnspan=2, sticky=tk.W, pady=2)
         
         self.enable_cloud_hydration_var = tk.BooleanVar(value=False)
         self.enable_cloud_hydration_check = ttk.Checkbutton(options_frame, 
                                                             text="Forçar download de arquivos em nuvem (OneDrive/Google Drive)",
                                                             variable=self.enable_cloud_hydration_var)
-        self.enable_cloud_hydration_check.grid(row=11, column=0, columnspan=2, sticky=tk.W, pady=2)
+        self.enable_cloud_hydration_check.grid(row=12, column=0, columnspan=2, sticky=tk.W, pady=2)
         
         # Botão de salvar configuração dentro das Configurações
         self.save_config_btn = ttk.Button(options_frame, text="Salvar Configuração", 
