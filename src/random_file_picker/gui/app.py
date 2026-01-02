@@ -29,12 +29,14 @@ from random_file_picker.core.file_analyzer import FileAnalyzer
 
 class RandomFilePickerGUI:
     def __init__(self, root):
+        print("[DEBUG __init__] INICIANDO RandomFilePickerGUI")
         self.root = root
         self.root.title("Selecionador Aleatório de Arquivos")
         self.root.geometry("800x600")
         self.root.minsize(600, 400)
         
         self.config_file = Path.cwd() / "config.json"
+        print(f"[DEBUG __init__] config_file = {self.config_file}")
         self.is_running = False
         self.config_changed = False
         self.initial_config = {}
@@ -67,7 +69,9 @@ class RandomFilePickerGUI:
             tmdb_api_key=tmdb_api_key
         )
         self.store_initial_config()
+        print(f"[DEBUG __init__] Após store_initial_config - use_cache_var.get() = {self.use_cache_var.get()}")
         self.setup_change_tracking()
+        print(f"[DEBUG __init__] Após setup_change_tracking - use_cache_var.get() = {self.use_cache_var.get()}")
         self.setup_keyboard_shortcuts()
         
         # Configura handler para fechar a janela
@@ -231,48 +235,59 @@ class RandomFilePickerGUI:
                                  font=('Arial', 8, 'italic'))
         self.keywords_info.grid(row=6, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
         
+        # Linha 6-7: Extensões ignoradas
+        ttk.Label(options_frame, text="Ignorar extensões (separadas por vírgula):").grid(
+            row=7, column=0, columnspan=2, sticky=tk.W, pady=(10, 2))
+        self.ignored_extensions_var = tk.StringVar(value="srt,sub,txt,nfo")
+        self.ignored_extensions_entry = ttk.Entry(options_frame, textvariable=self.ignored_extensions_var, width=40)
+        self.ignored_extensions_entry.grid(row=8, column=0, columnspan=2, sticky=(tk.W, tk.E))
+        
+        ttk.Label(options_frame,
+                  text="(Ex: srt,sub,txt - arquivos com estas extensões serão ignorados)",
+                  font=('Arial', 8, 'italic')).grid(row=9, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+        
         # Checkboxes
         self.open_folder_var = tk.BooleanVar(value=False)
         self.open_folder_check = ttk.Checkbutton(options_frame, 
                                                  text="Abrir pasta automaticamente após seleção",
                                                  variable=self.open_folder_var)
-        self.open_folder_check.grid(row=7, column=0, columnspan=2, sticky=tk.W, pady=(5, 2))
+        self.open_folder_check.grid(row=10, column=0, columnspan=2, sticky=tk.W, pady=(5, 2))
         
         self.open_file_var = tk.BooleanVar(value=False)
         self.open_file_check = ttk.Checkbutton(options_frame, 
                                                text="Abrir arquivo automaticamente após seleção",
                                                variable=self.open_file_var)
-        self.open_file_check.grid(row=8, column=0, columnspan=2, sticky=tk.W, pady=2)
+        self.open_file_check.grid(row=11, column=0, columnspan=2, sticky=tk.W, pady=2)
         
         self.use_sequence_var = tk.BooleanVar(value=True)
         self.use_sequence_check = ttk.Checkbutton(options_frame, 
                                                   text="Usar seleção sequencial (detecta ordenação em pastas)",
                                                   variable=self.use_sequence_var)
-        self.use_sequence_check.grid(row=9, column=0, columnspan=2, sticky=tk.W, pady=2)
+        self.use_sequence_check.grid(row=12, column=0, columnspan=2, sticky=tk.W, pady=2)
         
         self.process_zip_var = tk.BooleanVar(value=True)
         self.process_zip_check = ttk.Checkbutton(options_frame, 
                                                  text="Processar arquivos ZIP (buscar dentro de arquivos compactados)",
                                                  variable=self.process_zip_var)
-        self.process_zip_check.grid(row=10, column=0, columnspan=2, sticky=tk.W, pady=2)
+        self.process_zip_check.grid(row=13, column=0, columnspan=2, sticky=tk.W, pady=2)
         
         self.use_cache_var = tk.BooleanVar(value=True)
         self.use_cache_check = ttk.Checkbutton(options_frame, 
                                                text="Usar cache de arquivos (busca instantânea após primeira execução)",
                                                variable=self.use_cache_var)
-        self.use_cache_check.grid(row=11, column=0, columnspan=2, sticky=tk.W, pady=2)
+        self.use_cache_check.grid(row=14, column=0, columnspan=2, sticky=tk.W, pady=2)
         
         self.enable_cloud_hydration_var = tk.BooleanVar(value=False)
         self.enable_cloud_hydration_check = ttk.Checkbutton(options_frame, 
                                                             text="Forçar download de arquivos em nuvem (OneDrive/Google Drive)",
                                                             variable=self.enable_cloud_hydration_var)
-        self.enable_cloud_hydration_check.grid(row=12, column=0, columnspan=2, sticky=tk.W, pady=2)
+        self.enable_cloud_hydration_check.grid(row=15, column=0, columnspan=2, sticky=tk.W, pady=2)
         
         # Botão de salvar configuração dentro das Configurações
         self.save_config_btn = ttk.Button(options_frame, text="Salvar Configuração", 
                                          command=self.manual_save_config, state='disabled',
                                          width=20)
-        self.save_config_btn.grid(row=13, column=0, columnspan=2, pady=(10, 0), sticky=tk.W)
+        self.save_config_btn.grid(row=16, column=0, columnspan=2, pady=(10, 0), sticky=tk.W)
         
         # === LADO DIREITO: Botões verticais ===
         right_container = ttk.Frame(options_main_container)
@@ -430,6 +445,15 @@ class RandomFilePickerGUI:
         # Limita a 3 palavras-chave
         return keywords[:3]
     
+    def get_ignored_extensions_list(self):
+        """Retorna a lista de extensões a ignorar."""
+        text = self.ignored_extensions_var.get().strip()
+        if not text:
+            return []
+        # Separa por vírgula e limpa espaços
+        extensions = [ext.strip().lower().lstrip('.') for ext in text.split(",") if ext.strip()]
+        return extensions
+    
     # ========== GERENCIAMENTO DE CONFIGURAÇÃO ==========
     
     def get_current_config(self):
@@ -445,6 +469,7 @@ class RandomFilePickerGUI:
             "keywords_match_all": self.keywords_match_all_var.get(),
             "process_zip": self.process_zip_var.get(),
             "use_cache": self.use_cache_var.get(),
+            "ignored_extensions": self.get_ignored_extensions_list(),
             "enable_cloud_hydration": self.enable_cloud_hydration_var.get(),
             "last_opened_folder": self.last_opened_folder
         }
@@ -485,6 +510,8 @@ class RandomFilePickerGUI:
         self.use_sequence_var.trace_add('write', lambda *args: self.check_config_changed())
         self.history_limit_var.trace_add('write', lambda *args: self._on_history_limit_changed())
         self.keywords_var.trace_add('write', lambda *args: self.check_config_changed())
+        self.keywords_match_all_var.trace_add('write', lambda *args: self.check_config_changed())
+        self.ignored_extensions_var.trace_add('write', lambda *args: self.check_config_changed())
         self.process_zip_var.trace_add('write', lambda *args: self.check_config_changed())
         self.use_cache_var.trace_add('write', lambda *args: self.check_config_changed())
         self.enable_cloud_hydration_var.trace_add('write', lambda *args: self.check_config_changed())
@@ -1353,8 +1380,14 @@ class RandomFilePickerGUI:
             self.log_message(f"Seleção sequencial: {'Ativada' if use_sequence else 'Desativada'}", "info")
             self.log_message(f"Processar arquivos ZIP: {'Ativado' if process_zip else 'Desativado'}", "info")
             
+            # Obtém extensões ignoradas
+            ignored_extensions = self.get_ignored_extensions_list()
+            if ignored_extensions:
+                self.log_message(f"Extensões ignoradas: {', '.join(ignored_extensions)}", "info")
+            
             if keywords:
-                self.log_message(f"Palavras-chave: {', '.join(keywords)}", "info")
+                mode = "AND (todas)" if self.keywords_match_all_var.get() else "OR (ao menos uma)"
+                self.log_message(f"Palavras-chave: {', '.join(keywords)} [Modo: {mode}]", "info")
             else:
                 self.log_message("Palavras-chave: Nenhuma (todos os arquivos são elegíveis)", "info")
             
@@ -1365,9 +1398,14 @@ class RandomFilePickerGUI:
             # Usa lógica sequencial ou aleatória conforme configuração
             if use_sequence:
                 file_result, selection_info = select_file_with_sequence_logic(
-                    folders, exclude_prefix, use_sequence=True, keywords=keywords, 
-                    process_zip=process_zip, use_cache=use_cache
+                    folders, exclude_prefix, use_sequence=True, keywords=keywords,
+                    keywords_match_all=self.keywords_match_all_var.get(),
+                    process_zip=process_zip, use_cache=use_cache, ignored_extensions=ignored_extensions
                 )
+                
+                # Log do total de arquivos encontrados
+                total_found = selection_info.get('total_files_found', 0)
+                self.log_message(f"\n✓ ARQUIVOS ENCONTRADOS: {total_found}", "success" if total_found > 0 else "warning")
                 
                 if not file_result or not file_result['file_path']:
                     if keywords:
@@ -1399,7 +1437,7 @@ class RandomFilePickerGUI:
                 file_result = pick_random_file_with_zip_support(
                     folders, exclude_prefix, check_accessibility=False, 
                     keywords=keywords, keywords_match_all=self.keywords_match_all_var.get(),
-                    process_zip=process_zip, use_cache=use_cache
+                    process_zip=process_zip, use_cache=use_cache, ignored_extensions=ignored_extensions
                 )
                 
                 if not file_result or not file_result['file_path']:
@@ -1560,6 +1598,9 @@ class RandomFilePickerGUI:
     
     def save_config(self):
         """Salva a configuração atual em um arquivo JSON."""
+        use_cache_value = self.use_cache_var.get()
+        print(f"[DEBUG save_config] use_cache_var.get() = {use_cache_value} (tipo: {type(use_cache_value)})")
+        
         config = {
             "folders": self.get_folders_list(),
             "exclude_prefix": self.exclude_prefix_var.get(),
@@ -1568,10 +1609,15 @@ class RandomFilePickerGUI:
             "use_sequence": self.use_sequence_var.get(),
             "history_limit": int(self.history_limit_var.get()),
             "keywords": self.keywords_var.get(),
+            "keywords_match_all": self.keywords_match_all_var.get(),
+            "ignored_extensions": self.ignored_extensions_var.get(),
             "process_zip": self.process_zip_var.get(),
+            "use_cache": use_cache_value,
+            "enable_cloud_hydration": self.enable_cloud_hydration_var.get(),
             "file_history": self.file_history,
             "last_opened_folder": self.last_opened_folder
         }
+        print(f"[DEBUG save_config] config['use_cache'] = {config['use_cache']} (tipo: {type(config['use_cache'])})")
         
         success = self.config_manager.save_config(config)
         if not success:
@@ -1580,7 +1626,9 @@ class RandomFilePickerGUI:
     def load_config(self):
         """Carrega a configuração salva."""
         try:
+            print(f"[DEBUG load_config] Carregando config de: {self.config_manager.config_file}")
             config = self.config_manager.load_config()
+            print(f"[DEBUG load_config] Config carregado (raw): {config}")
             config = self.config_manager.validate_config(config)
             
             # Restaurar pastas
@@ -1597,11 +1645,25 @@ class RandomFilePickerGUI:
             self.open_file_var.set(config.get("open_file", True))
             self.use_sequence_var.set(config.get("use_sequence", True))
             self.process_zip_var.set(config.get("process_zip", True))
-            self.use_cache_var.set(config.get("use_cache", True))
+            
+            use_cache_loaded = config.get("use_cache", True)
+            print(f"[DEBUG load_config] use_cache do JSON = {use_cache_loaded} (tipo: {type(use_cache_loaded)})")
+            self.use_cache_var.set(use_cache_loaded)
+            print(f"[DEBUG load_config] Após set, use_cache_var.get() = {self.use_cache_var.get()}")
+            
             self.enable_cloud_hydration_var.set(config.get("enable_cloud_hydration", False))
             self.keywords_var.set(config.get("keywords", ""))
             self.keywords_match_all_var.set(config.get("keywords_match_all", False))
             self.history_limit_var.set(config.get("history_limit", 5))
+            
+            # Carregar extensões ignoradas
+            ignored_ext = config.get("ignored_extensions", [])
+            if isinstance(ignored_ext, list):
+                self.ignored_extensions_var.set(",".join(ignored_ext))
+            elif isinstance(ignored_ext, str):
+                self.ignored_extensions_var.set(ignored_ext)
+            else:
+                self.ignored_extensions_var.set("srt,sub,txt,nfo")
             
             # Atualiza texto informativo baseado no modo
             self._on_keywords_match_changed()
@@ -1611,6 +1673,11 @@ class RandomFilePickerGUI:
             self.last_opened_folder = config.get("last_opened_folder", None)
             
             self.update_history_buttons()
+            
+            # Forçar atualização da UI para refletir os valores carregados
+            self.root.update_idletasks()
+            
+            print(f"[DEBUG load_config] FIM do load_config - use_cache_var.get() = {self.use_cache_var.get()}")
             
         except Exception as e:
             self.log_message(f"Erro ao carregar configuração: {e}", "error")

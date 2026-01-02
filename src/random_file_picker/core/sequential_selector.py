@@ -196,7 +196,7 @@ def extract_collection_name(filename: str) -> str:
     return collection_name if collection_name else name_without_ext
 
 
-def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_", keywords: List[str] = None) -> Optional[List[Dict]]:
+def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_", keywords: List[str] = None, keywords_match_all: bool = False, ignored_extensions: List[str] = None) -> Optional[List[Dict]]:
     """
     Analisa se os arquivos em uma pasta seguem uma sequência ordenada.
     Agrupa arquivos por coleção (nome base) para suportar múltiplas coleções na mesma pasta.
@@ -205,11 +205,18 @@ def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_", keyw
         folder_path: Caminho da pasta
         exclude_prefix: Prefixo de arquivos a ignorar
         keywords: Lista de palavras-chave para filtrar arquivos
+        keywords_match_all: Se True, todas as keywords devem estar presentes (AND); se False, ao menos uma (OR)
+        ignored_extensions: Lista de extensões a ignorar (ex: ['srt', 'sub'])
         
     Returns:
         Lista de dicionários com informações das sequências por coleção, ou None se não houver padrão
     """
     files_with_numbers = []
+    
+    # Normaliza extensões ignoradas
+    ignored_ext_set = set()
+    if ignored_extensions:
+        ignored_ext_set = {ext.lower().lstrip('.') for ext in ignored_extensions}
     
     try:
         # Lista todos os arquivos da pasta (não recursivo)
@@ -223,12 +230,24 @@ def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_", keyw
             if filename.startswith(exclude_prefix):
                 continue
             
+            # Ignora arquivos com extensões da lista de ignorados
+            if ignored_ext_set:
+                file_ext = file_path.suffix.lower().lstrip('.')
+                if file_ext in ignored_ext_set:
+                    continue
+            
             # Filtra por palavras-chave se fornecidas
             if keywords:
                 file_name_lower = filename.lower()
-                # Verifica se ao menos UMA palavra-chave está no nome do arquivo
-                if not any(keyword in file_name_lower for keyword in keywords):
-                    continue
+                keywords_lower = [kw.lower() for kw in keywords]
+                if keywords_match_all:
+                    # Modo AND: todas as palavras devem estar presentes
+                    if not all(keyword in file_name_lower for keyword in keywords_lower):
+                        continue
+                else:
+                    # Modo OR: ao menos UMA palavra-chave está no nome do arquivo
+                    if not any(keyword in file_name_lower for keyword in keywords_lower):
+                        continue
             
             # Tenta extrair número e nome da coleção
             result = extract_number_from_filename(filename)
@@ -298,7 +317,7 @@ def analyze_folder_sequence(folder_path: Path, exclude_prefix: str = "_L_", keyw
     return None
 
 
-def get_next_unread_file(sequences: List[Dict], tracker: SequentialFileTracker, keywords: List[str] = None) -> Optional[Tuple[str, Dict]]:
+def get_next_unread_file(sequences: List[Dict], tracker: SequentialFileTracker, keywords: List[str] = None, keywords_match_all: bool = False) -> Optional[Tuple[str, Dict]]:
     """
     Retorna o próximo arquivo não lido em uma das sequências.
     Seleciona aleatoriamente uma coleção com arquivos não lidos.
@@ -307,6 +326,7 @@ def get_next_unread_file(sequences: List[Dict], tracker: SequentialFileTracker, 
         sequences: Lista de sequências detectadas
         tracker: Rastreador de arquivos lidos
         keywords: Lista de palavras-chave para filtrar arquivos
+        keywords_match_all: Se True, todas as keywords devem estar presentes (AND); se False, ao menos uma (OR)
         
     Returns:
         Tupla (caminho do arquivo, info da sequência) ou None se não houver
@@ -329,9 +349,15 @@ def get_next_unread_file(sequences: List[Dict], tracker: SequentialFileTracker, 
             # Filtra por palavras-chave se fornecidas
             if keywords:
                 file_name = Path(file_path).name.lower()
-                # Verifica se ao menos UMA palavra-chave está no nome do arquivo
-                if not any(keyword in file_name for keyword in keywords):
-                    continue
+                keywords_lower = [kw.lower() for kw in keywords]
+                if keywords_match_all:
+                    # Modo AND: todas as palavras devem estar presentes
+                    if not all(keyword in file_name for keyword in keywords_lower):
+                        continue
+                else:
+                    # Modo OR: ao menos UMA palavra-chave está no nome do arquivo
+                    if not any(keyword in file_name for keyword in keywords_lower):
+                        continue
             
             # Arquivo válido encontrado
             collections_with_unread.append({
@@ -352,7 +378,7 @@ def get_next_unread_file(sequences: List[Dict], tracker: SequentialFileTracker, 
 
 def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_L_", 
                                     use_sequence: bool = True, keywords: List[str] = None,
-                                    process_zip: bool = True, use_cache: bool = True) -> Tuple[Dict, Dict]:
+                                    keywords_match_all: bool = False, process_zip: bool = True, use_cache: bool = True, ignored_extensions: List[str] = None) -> Tuple[Dict, Dict]:
     """
     Seleciona um arquivo considerando lógica de sequência, com suporte a ZIP.
     
@@ -361,6 +387,7 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
         exclude_prefix: Prefixo de arquivos a ignorar
         use_sequence: Se True, usa lógica de sequência quando detectada
         keywords: Lista de palavras-chave para filtrar arquivos
+        keywords_match_all: Se True, todas as keywords devem estar presentes (AND); se False, ao menos uma (OR)
         process_zip: Se True, processa arquivos ZIP; se False, trata ZIPs como arquivos normais
         use_cache: Se True, usa cache para acelerar busca (padrão: True)
         
@@ -415,8 +442,10 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
         exclude_prefix=exclude_prefix,
         check_accessibility=False,
         keywords=keywords,
+        keywords_match_all=keywords_match_all,
         use_cache=use_cache,
-        process_zip=False  # Não processa ZIP aqui, faz depois
+        process_zip=False,  # Não processa ZIP aqui, faz depois
+        ignored_extensions=ignored_extensions
     )
     
     info['total_files_found'] = len(all_files)
@@ -424,11 +453,11 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
     # Se usar lógica de sequência, tenta encontrar pastas com sequências e arquivos não lidos
     if use_sequence:
         for folder in folder_list:
-            sequences = analyze_folder_sequence(folder, exclude_prefix, keywords)
+            sequences = analyze_folder_sequence(folder, exclude_prefix, keywords, keywords_match_all, ignored_extensions)
             
             if sequences:
                 # Há sequências detectadas (pode haver múltiplas coleções)
-                result = get_next_unread_file(sequences, tracker, keywords)
+                result = get_next_unread_file(sequences, tracker, keywords, keywords_match_all)
                 
                 if result:
                     # Encontrou próximo arquivo não lido em alguma coleção
@@ -445,7 +474,7 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
                     }
                     
                     # Verifica se é um arquivo ZIP
-                    file_result = _process_file_selection(next_file, exclude_prefix, keywords, is_zip_check=process_zip)
+                    file_result = _process_file_selection(next_file, exclude_prefix, keywords, keywords_match_all, is_zip_check=process_zip)
                     
                     if file_result:
                         tracker.mark_as_read(next_file)
@@ -461,7 +490,7 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
         # IMPORTANTE: Verifica se o arquivo aleatório faz parte de uma sequência
         # e se há um arquivo anterior não lido
         selected_folder = Path(selected).parent
-        folder_sequences = analyze_folder_sequence(selected_folder, exclude_prefix, keywords)
+        folder_sequences = analyze_folder_sequence(selected_folder, exclude_prefix, keywords, keywords_match_all, ignored_extensions)
         
         if folder_sequences:
             # O arquivo aleatório faz parte de uma sequência!
@@ -490,7 +519,7 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
                 selected = next_file
         
         # Verifica se é um arquivo ZIP
-        file_result = _process_file_selection(selected, exclude_prefix, keywords, is_zip_check=process_zip)
+        file_result = _process_file_selection(selected, exclude_prefix, keywords, keywords_match_all, is_zip_check=process_zip)
         
         if file_result:
             return file_result, info
@@ -498,7 +527,7 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
     return {'file_path': None, 'is_from_zip': False, 'zip_path': None, 'file_in_zip': None, 'temp_dir': None}, info
 
 
-def _process_file_selection(file_path: str, exclude_prefix: str, keywords: List[str], is_zip_check: bool = True) -> Optional[Dict]:
+def _process_file_selection(file_path: str, exclude_prefix: str, keywords: List[str], keywords_match_all: bool = False, is_zip_check: bool = True) -> Optional[Dict]:
     """
     Processa a seleção de um arquivo, verificando se é ZIP e extraindo se necessário.
     
@@ -506,6 +535,7 @@ def _process_file_selection(file_path: str, exclude_prefix: str, keywords: List[
         file_path: Caminho do arquivo selecionado
         exclude_prefix: Prefixo a ser excluído
         keywords: Lista de palavras-chave para filtrar
+        keywords_match_all: Se True, todas as keywords devem estar presentes (AND)
         is_zip_check: Se True, verifica se é ZIP e processa
         
     Returns:
@@ -525,7 +555,7 @@ def _process_file_selection(file_path: str, exclude_prefix: str, keywords: List[
     print(f"Arquivo ZIP detectado: {os.path.basename(file_path)}")
     print("Explorando conteúdo do ZIP...")
     
-    files_in_zip = list_files_in_zip(file_path, exclude_prefix, keywords)
+    files_in_zip = list_files_in_zip(file_path, exclude_prefix, keywords, keywords_match_all)
     
     if not files_in_zip:
         if keywords:

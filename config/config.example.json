@@ -6,6 +6,7 @@
   "use_sequence": true,
   "history_limit": 10,
   "keywords": "",
+  "ignored_extensions": "srt,sub,txt,nfo",
   "tmdb_api_key": "",
   "file_history": []
 }

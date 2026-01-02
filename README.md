@@ -126,6 +126,12 @@ Para ativar a busca automática de capas de filmes:
    ```
 3. Veja o [guia completo de configuração](docs/TMDB_SETUP.md)
 
+**✨ Novo:** Sistema de busca inteligente com:
+- Busca bilíngue (português + inglês)
+- Score de relevância baseado em popularidade, ano e correspondência
+- Limpeza avançada de nomes (remove 50+ termos técnicos)
+- Veja todos os detalhes em [TMDB_IMPROVEMENTS.md](docs/TMDB_IMPROVEMENTS.md)
+
 Quando configurado, o sistema tentará buscar capas oficiais antes de extrair frames dos vídeos.
 
 ## 🚀 Como usar

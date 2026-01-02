@@ -155,6 +155,22 @@ class ConfigManager:
         if not isinstance(validated['process_zip'], bool):
             validated['process_zip'] = default['process_zip']
         
+        validated['use_cache'] = config.get('use_cache', True)
+        if not isinstance(validated['use_cache'], bool):
+            validated['use_cache'] = True
+        
+        validated['keywords_match_all'] = config.get('keywords_match_all', False)
+        if not isinstance(validated['keywords_match_all'], bool):
+            validated['keywords_match_all'] = False
+        
+        validated['ignored_extensions'] = config.get('ignored_extensions', "")
+        if not isinstance(validated['ignored_extensions'], (str, list)):
+            validated['ignored_extensions'] = ""
+        
+        validated['enable_cloud_hydration'] = config.get('enable_cloud_hydration', False)
+        if not isinstance(validated['enable_cloud_hydration'], bool):
+            validated['enable_cloud_hydration'] = False
+        
         validated['file_history'] = config.get('file_history', default['file_history'])
         if not isinstance(validated['file_history'], list):
             validated['file_history'] = default['file_history']
