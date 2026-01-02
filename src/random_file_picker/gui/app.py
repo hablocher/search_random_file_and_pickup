@@ -611,6 +611,28 @@ class RandomFilePickerGUI:
         Retorna: True se sucesso, False se cancelado
         """
         try:
+            # NOVA VERIFICAÇÃO: Detecta se é placeholder de nuvem
+            from random_file_picker.core.file_loader import is_cloud_placeholder
+            
+            is_placeholder, cloud_service = is_cloud_placeholder(file_path)
+            
+            if is_placeholder:
+                self.log_message(
+                    f"⚠ Arquivo ainda sincronizando do {cloud_service}",
+                    "warning"
+                )
+                self.log_message(
+                    f"O arquivo não está totalmente baixado. Aguarde a sincronização.",
+                    "warning"
+                )
+                self.log_message(
+                    f"Dica: Abra o arquivo uma vez para forçar o download completo.",
+                    "info"
+                )
+                # Retorna False para indicar que não pode carregar
+                self.file_data_buffer = None
+                return False
+            
             self.log_message("Carregando arquivo completo na memória...", "info")
             self.log_message("(Arquivos grandes podem levar alguns minutos)", "warning")
             
@@ -725,8 +747,14 @@ class RandomFilePickerGUI:
             
             # CARREGA O ARQUIVO NO BUFFER PRIMEIRO (com chunks e cancelamento)
             if not self._load_file_to_buffer(file_path):
-                # Carregamento cancelado
-                return (None, 0)
+                # Carregamento falhou (cancelado OU placeholder detectado)
+                # Se for placeholder, file_data_buffer será None
+                if self.file_data_buffer is None:
+                    # Era placeholder, retorna SYNCING
+                    return ("SYNCING", 0)
+                else:
+                    # Foi cancelado pelo usuário
+                    return (None, 0)
             
             # Usa ArchiveExtractor para extrair imagem
             self.log_message(f"Detectando formato e extraindo imagem...", "info")

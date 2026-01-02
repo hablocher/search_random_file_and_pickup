@@ -12,3 +12,13 @@
   use_cache=True
   process_zip=False
   folders=5
+
+[2026-01-02 02:40:43.800029] collect_files chamado
+  use_cache=True
+  process_zip=False
+  folders=5
+
+[2026-01-02 02:45:40.515926] collect_files chamado
+  use_cache=True
+  process_zip=False
+  folders=5
