@@ -6,5 +6,6 @@
   "use_sequence": true,
   "history_limit": 10,
   "keywords": "",
+  "tmdb_api_key": "",
   "file_history": []
 }

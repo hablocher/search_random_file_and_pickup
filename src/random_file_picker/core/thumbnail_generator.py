@@ -15,19 +15,38 @@ class ThumbnailGenerator:
         """
         self.max_size = max_size
     
-    def create_thumbnail(self, image: Image.Image) -> Image.Image:
+    def create_thumbnail(self, image: Image.Image, fit_mode: str = 'thumbnail') -> Image.Image:
         """Cria thumbnail mantendo proporção da imagem.
         
         Args:
             image: Imagem PIL original.
+            fit_mode: Modo de ajuste - 'thumbnail' (reduz mantendo proporção) 
+                     ou 'contain' (ajusta para caber mantendo proporção completa).
             
         Returns:
             Imagem redimensionada.
         """
-        # Cria uma cópia para não modificar o original
-        thumbnail = image.copy()
-        thumbnail.thumbnail(self.max_size, Image.Resampling.LANCZOS)
-        return thumbnail
+        if fit_mode == 'contain':
+            # Calcula proporções para caber exatamente no espaço
+            img_width, img_height = image.size
+            max_width, max_height = self.max_size
+            
+            # Calcula fator de escala mantendo proporção
+            width_ratio = max_width / img_width
+            height_ratio = max_height / img_height
+            scale = min(width_ratio, height_ratio)
+            
+            # Calcula novo tamanho
+            new_width = int(img_width * scale)
+            new_height = int(img_height * scale)
+            
+            # Redimensiona mantendo proporção exata
+            return image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        else:
+            # Modo padrão: thumbnail (reduz mantendo proporção dentro do limite)
+            thumbnail = image.copy()
+            thumbnail.thumbnail(self.max_size, Image.Resampling.LANCZOS)
+            return thumbnail
     
     def create_default_thumbnail(self, message: str = "Prévia não disponível") -> Image.Image:
         """Cria imagem padrão com mensagem.

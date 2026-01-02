@@ -52,12 +52,20 @@ class RandomFilePickerGUI:
         # Módulos refatorados
         self.config_manager = ConfigManager(self.config_file)
         self.file_loader = FileLoader(chunk_size=1024 * 1024)  # 1MB chunks
-        self.archive_extractor = ArchiveExtractor(log_callback=self.log_message)
+        # ArchiveExtractor será inicializado após carregar config (precisa da API key)
+        self.archive_extractor = None
         self.thumbnail_generator = ThumbnailGenerator(max_size=(200, 280))
         self.file_analyzer = FileAnalyzer()
         
         self.setup_ui()
         self.load_config()
+        
+        # Inicializa ArchiveExtractor com API key do config
+        tmdb_api_key = self.config_manager.get('tmdb_api_key')
+        self.archive_extractor = ArchiveExtractor(
+            log_callback=self.log_message,
+            tmdb_api_key=tmdb_api_key
+        )
         self.store_initial_config()
         self.setup_change_tracking()
         self.setup_keyboard_shortcuts()
@@ -216,13 +224,13 @@ class RandomFilePickerGUI:
         keywords_info.grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(2, 5))
         
         # Checkboxes
-        self.open_folder_var = tk.BooleanVar(value=True)
+        self.open_folder_var = tk.BooleanVar(value=False)
         self.open_folder_check = ttk.Checkbutton(options_frame, 
                                                  text="Abrir pasta automaticamente após seleção",
                                                  variable=self.open_folder_var)
         self.open_folder_check.grid(row=6, column=0, columnspan=2, sticky=tk.W, pady=(5, 2))
         
-        self.open_file_var = tk.BooleanVar(value=True)
+        self.open_file_var = tk.BooleanVar(value=False)
         self.open_file_check = ttk.Checkbutton(options_frame, 
                                                text="Abrir arquivo automaticamente após seleção",
                                                variable=self.open_file_var)
@@ -1174,7 +1182,16 @@ class RandomFilePickerGUI:
         self._analyze_file_and_display_info(file_path)
         
         try:
-            # Tenta extrair imagem do arquivo (se for ZIP/RAR/PDF)
+            # Obtém informações do tipo de arquivo
+            file_ext = Path(file_path).suffix.lower()
+            file_formats = self.file_analyzer.analyze_file(file_path)
+            
+            # Determina se é um arquivo de vídeo
+            is_video = file_formats.get('detected_format', '').lower() in [
+                'mp4', 'avi', 'mkv', 'webm', 'flv', 'mov', 'wmv'
+            ]
+            
+            # Tenta extrair imagem do arquivo (se for ZIP/RAR/PDF/VIDEO)
             result = self._extract_first_image_from_zip(file_path)
             
             # Desempacota o resultado (pode ser tupla ou valor único)
@@ -1195,7 +1212,11 @@ class RandomFilePickerGUI:
                 image = self.thumbnail_generator.create_default_thumbnail()
             else:
                 # Cria thumbnail da imagem extraída
-                image = self.thumbnail_generator.create_thumbnail(image)
+                # Para vídeos, usa modo 'contain' para ajustar automaticamente
+                if is_video:
+                    image = self.thumbnail_generator.create_thumbnail(image, fit_mode='contain')
+                else:
+                    image = self.thumbnail_generator.create_thumbnail(image)
             
             # Converte para formato do Tkinter
             photo = ImageTk.PhotoImage(image)

@@ -16,6 +16,21 @@ class ConfigManager:
         """
         self.config_file = config_file
         self.initial_config: Dict[str, Any] = {}
+        self._config_cache: Optional[Dict[str, Any]] = None
+    
+    def get(self, key: str, default: Any = None) -> Any:
+        """Obtém valor de configuração.
+        
+        Args:
+            key: Chave da configuração.
+            default: Valor padrão se a chave não existir.
+            
+        Returns:
+            Valor da configuração ou default.
+        """
+        if self._config_cache is None:
+            self._config_cache = self.load_config()
+        return self._config_cache.get(key, default)
         
     def load_config(self) -> Dict[str, Any]:
         """Carrega a configuração do arquivo.
@@ -24,15 +39,18 @@ class ConfigManager:
             Dicionário com a configuração carregada.
         """
         if not self.config_file.exists():
-            return self._get_default_config()
+            config = self._get_default_config()
+        else:
+            try:
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+            except Exception as e:
+                print(f"Erro ao carregar configuração: {e}")
+                config = self._get_default_config()
         
-        try:
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-            return config
-        except Exception as e:
-            print(f"Erro ao carregar configuração: {e}")
-            return self._get_default_config()
+        # Atualiza cache
+        self._config_cache = config
+        return config
     
     def save_config(self, config: Dict[str, Any]) -> bool:
         """Salva a configuração no arquivo.
@@ -86,6 +104,7 @@ class ConfigManager:
             "history_limit": 5,
             "keywords": "",
             "process_zip": True,
+            "tmdb_api_key": "",
             "file_history": [],
             "last_opened_folder": None
         }

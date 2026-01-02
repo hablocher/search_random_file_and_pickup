@@ -16,6 +16,12 @@ except ImportError:
     HAS_FFMPEG = False
 
 try:
+    from ..utils.movie_poster import MoviePosterFetcher
+    HAS_MOVIE_POSTER = True
+except ImportError:
+    HAS_MOVIE_POSTER = False
+
+try:
     import fitz  # PyMuPDF
     HAS_PYMUPDF = True
 except ImportError:
@@ -120,9 +126,16 @@ def validate_zip_buffer(file_data: bytes, log_callback: Optional[Callable] = Non
 class ArchiveExtractor:
     """Extrai imagens de arquivos ZIP, RAR e PDF."""
     
-    def __init__(self, log_callback=None):
+    def __init__(self, log_callback=None, tmdb_api_key=None):
         """Inicializa o extrator com callback opcional para logs."""
         self.log_callback = log_callback
+        self.tmdb_api_key = tmdb_api_key
+        
+        # Inicializa fetcher de capas se disponível
+        if HAS_MOVIE_POSTER and tmdb_api_key:
+            self.poster_fetcher = MoviePosterFetcher(tmdb_api_key, log_callback)
+        else:
+            self.poster_fetcher = None
     
     def _log(self, message: str, level: str = "info"):
         """Log interno."""
@@ -461,15 +474,28 @@ class ArchiveExtractor:
                     .run(capture_stdout=True, capture_stderr=True, quiet=True)
                 )
                 
-                # Carrega imagem
-                image = Image.open(tmp_path)
+                # Carrega imagem e copia para memória antes de fechar o arquivo
+                with Image.open(tmp_path) as img:
+                    # Força carregar todos os pixels na memória
+                    image = img.copy()
+                
                 self._log(f"✓ Frame extraído: {image.size}", "success")
                 return (image, duration)
                 
             finally:
                 # Remove arquivo temporário
-                if os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
+                try:
+                    if os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
+                except PermissionError:
+                    # Se ainda estiver em uso, tenta novamente após pequeno delay
+                    import time
+                    time.sleep(0.1)
+                    try:
+                        if os.path.exists(tmp_path):
+                            os.unlink(tmp_path)
+                    except:
+                        pass  # Ignora se não conseguir deletar
         
         except FileNotFoundError as e:
             self._log("❌ FFmpeg não encontrado no sistema", "error")
@@ -510,12 +536,27 @@ class ArchiveExtractor:
             video_formats = ['mp4', 'avi', 'mkv', 'webm', 'flv', 'mov', 'wmv']
             if detected_format in video_formats:
                 self._log(f"📹 Processando arquivo de vídeo ({detected_format.upper()})")
-                image, duration = self.extract_from_video(file_path)
-                if image:
-                    # Retorna duração como "page_count" para mostrar info
-                    return (image, int(duration), None)
+                
+                # Tenta buscar capa do filme primeiro (se configurado)
+                poster_image = None
+                if self.poster_fetcher and self.poster_fetcher.enabled:
+                    self._log("🎬 Tentando buscar capa do filme online...")
+                    poster_image = self.poster_fetcher.get_movie_poster(Path(file_path).name)
+                
+                if poster_image:
+                    # Usa capa encontrada
+                    self._log("✓ Usando capa do filme encontrada", "success")
+                    return (poster_image, 0, None)
                 else:
-                    return (None, 0, 'VIDEO_ERROR')
+                    # Fallback: extrai frame do vídeo
+                    if self.poster_fetcher and self.poster_fetcher.enabled:
+                        self._log("⚠ Capa não encontrada, extraindo frame do vídeo...", "warning")
+                    image, duration = self.extract_from_video(file_path)
+                    if image:
+                        # Retorna duração como "page_count" para mostrar info
+                        return (image, int(duration), None)
+                    else:
+                        return (None, 0, 'VIDEO_ERROR')
             
             # ÁUDIO (apenas mostra mensagem, não extrai imagem)
             audio_formats = ['mp3', 'flac', 'ogg', 'wav']
