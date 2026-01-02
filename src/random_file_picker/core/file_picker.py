@@ -76,13 +76,14 @@ def list_files_in_zip(zip_path: str, exclude_prefix: str = "_L_", keywords: List
                 # Filtra por palavras-chave se fornecidas
                 if keywords:
                     file_name_lower = file_name.lower()
+                    keywords_lower = [kw.lower() for kw in keywords]
                     if keywords_match_all:
                         # Modo AND: todas as palavras devem estar presentes
-                        if not all(keyword in file_name_lower for keyword in keywords):
+                        if not all(keyword in file_name_lower for keyword in keywords_lower):
                             continue
                     else:
                         # Modo OR: ao menos uma palavra deve estar presente
-                        if not any(keyword in file_name_lower for keyword in keywords):
+                        if not any(keyword in file_name_lower for keyword in keywords_lower):
                             continue
                 
                 valid_files.append(file_info.filename)
@@ -167,15 +168,6 @@ def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessi
     Returns:
         Lista com os caminhos completos dos arquivos válidos
     """
-    # DEBUG: Log para verificar se função é chamada
-    import datetime
-    debug_log = Path.cwd() / "debug_cache.log"
-    with open(debug_log, 'a', encoding='utf-8') as f:
-        f.write(f"\n[{datetime.datetime.now()}] collect_files chamado\n")
-        f.write(f"  use_cache={use_cache}\n")
-        f.write(f"  process_zip={process_zip}\n")
-        f.write(f"  folders={len(folders)}\n")
-    
     cache_manager = CacheManager()
     
     # Tenta usar cache se habilitado
@@ -183,22 +175,18 @@ def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessi
         folders, exclude_prefix, ".", keywords or [], False, keywords_match_all
     ):
         print("✓ Usando cache de arquivos (busca instantânea)...")
-        cached_files = cache_manager.get_cached_files()
         
-        # Filtra por palavras-chave se necessário (cache pode ter todas)
-        if keywords:
-            keyword_lower = [k.lower() for k in keywords]
-            valid_files = [
-                f['path'] for f in cached_files 
-                if any(kw in Path(f['path']).name.lower() for kw in keyword_lower)
-            ]
-        else:
-            valid_files = [f['path'] for f in cached_files]
+        # OTIMIZADO: Usa índice de keywords para busca instantânea
+        cached_files = cache_manager.get_cached_files(keywords, keywords_match_all)
+        valid_files = [f['path'] for f in cached_files]
         
         cache_info = cache_manager.get_cache_info()
         if cache_info:
             cache_size = cache_info.get('file_size', 0) / 1024
-            print(f"  Cache: {len(cached_files)} arquivos ({cache_size:.1f} KB)")
+            indexed_words = cache_info.get('indexed_words', 0)
+            print(f"  Cache: {cache_info['file_count']} arquivos ({cache_size:.1f} KB)")
+            if indexed_words > 0:
+                print(f"  Índice: {indexed_words} palavras indexadas")
         
         return valid_files
     
@@ -242,13 +230,14 @@ def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessi
                     # Filtra por palavras-chave se fornecidas
                     if keywords:
                         file_name_lower = file_path.name.lower()
+                        keywords_lower = [kw.lower() for kw in keywords]
                         if keywords_match_all:
                             # Modo AND: todas as palavras devem estar presentes
-                            if not all(keyword in file_name_lower for keyword in keywords):
+                            if not all(keyword in file_name_lower for keyword in keywords_lower):
                                 continue
                         else:
                             # Modo OR: ao menos UMA palavra-chave está no nome do arquivo
-                            if not any(keyword in file_name_lower for keyword in keywords):
+                            if not any(keyword in file_name_lower for keyword in keywords_lower):
                                 continue
                     
                     # Verifica acessibilidade apenas se solicitado
@@ -290,21 +279,14 @@ def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessi
     
     # Salva cache se habilitado
     if use_cache and len(file_data) > 0:
-        # DEBUG
-        with open(debug_log, 'a', encoding='utf-8') as f:
-            f.write(f"[{datetime.datetime.now()}] Tentando salvar cache\n")
-            f.write(f"  file_data count={len(file_data)}\n")
-        
         success = cache_manager.save_cache(
             file_data, folders, exclude_prefix, ".", keywords or [], process_zip, keywords_match_all
         )
         
-        # DEBUG
-        with open(debug_log, 'a', encoding='utf-8') as f:
-            f.write(f"[{datetime.datetime.now()}] save_cache result={success}\n")
-            f.write(f"  cache_file={cache_manager.cache_file}\n")
-        
-        print(f"✓ Cache criado: {len(file_data)} arquivos")
+        if success:
+            print(f"✓ Cache criado: {len(file_data)} arquivos indexados")
+        else:
+            print("⚠ Aviso: Não foi possível salvar o cache")
     
     return valid_files
 

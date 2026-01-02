@@ -272,7 +272,7 @@ class RandomFilePickerGUI:
         self.save_config_btn = ttk.Button(options_frame, text="Salvar Configuração", 
                                          command=self.manual_save_config, state='disabled',
                                          width=20)
-        self.save_config_btn.grid(row=12, column=0, columnspan=2, pady=(10, 0), sticky=tk.W)
+        self.save_config_btn.grid(row=13, column=0, columnspan=2, pady=(10, 0), sticky=tk.W)
         
         # === LADO DIREITO: Botões verticais ===
         right_container = ttk.Frame(options_main_container)

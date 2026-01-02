@@ -42,5 +42,8 @@ read_files_tracker.json
 .DS_Store
 Thumbs.db
 
+# Cache files
 debug_cache.log
 file_cache.json.gz
+.file_cache/
+./file_cache
