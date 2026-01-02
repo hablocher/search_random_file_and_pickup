@@ -184,6 +184,13 @@ class RandomFilePickerGUI:
                                                  variable=self.process_zip_var)
         self.process_zip_check.grid(row=7, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
         
+        # Checkbox para usar cache
+        self.use_cache_var = tk.BooleanVar(value=True)
+        self.use_cache_check = ttk.Checkbutton(options_frame, 
+                                               text="Usar cache de arquivos (busca instantânea após primeira execução)",
+                                               variable=self.use_cache_var)
+        self.use_cache_check.grid(row=8, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
+        
         # Botão de execução
         button_frame = ttk.Frame(main_frame)
         button_frame.grid(row=3, column=0, columnspan=2, pady=(0, 10))
@@ -341,6 +348,7 @@ class RandomFilePickerGUI:
             "history_limit": self.history_limit_var.get(),
             "keywords": self.get_keywords_list(),
             "process_zip": self.process_zip_var.get(),
+            "use_cache": self.use_cache_var.get(),
             "last_opened_folder": self.last_opened_folder
         }
     
@@ -381,6 +389,7 @@ class RandomFilePickerGUI:
         self.history_limit_var.trace_add('write', lambda *args: self._on_history_limit_changed())
         self.keywords_var.trace_add('write', lambda *args: self.check_config_changed())
         self.process_zip_var.trace_add('write', lambda *args: self.check_config_changed())
+        self.use_cache_var.trace_add('write', lambda *args: self.check_config_changed())
     
     def setup_keyboard_shortcuts(self):
         """Configura atalhos de teclado."""
@@ -845,12 +854,12 @@ class RandomFilePickerGUI:
                                  args=(folders, self.exclude_prefix_var.get(), 
                                        self.open_folder_var.get(), self.open_file_var.get(),
                                        self.use_sequence_var.get(), keywords, 
-                                       self.process_zip_var.get()))
+                                       self.process_zip_var.get(), self.use_cache_var.get()))
         thread.daemon = True
         thread.start()
         
     def _execute_selection_thread(self, folders, exclude_prefix, open_folder_after, 
-                                  open_file_after, use_sequence, keywords, process_zip):
+                                  open_file_after, use_sequence, keywords, process_zip, use_cache):
         """Executa a seleção em uma thread separada."""
         temp_dir_to_cleanup = None
         try:
@@ -879,7 +888,8 @@ class RandomFilePickerGUI:
             # Usa lógica sequencial ou aleatória conforme configuração
             if use_sequence:
                 file_result, selection_info = select_file_with_sequence_logic(
-                    folders, exclude_prefix, use_sequence=True, keywords=keywords, process_zip=process_zip
+                    folders, exclude_prefix, use_sequence=True, keywords=keywords, 
+                    process_zip=process_zip, use_cache=use_cache
                 )
                 
                 if not file_result or not file_result['file_path']:
@@ -909,7 +919,10 @@ class RandomFilePickerGUI:
                     self.log_message(f"\nNenhuma sequência detectada - seleção aleatória", "info")
             else:
                 # Modo aleatório tradicional com suporte a ZIP
-                file_result = pick_random_file_with_zip_support(folders, exclude_prefix, check_accessibility=False, keywords=keywords, process_zip=process_zip)
+                file_result = pick_random_file_with_zip_support(
+                    folders, exclude_prefix, check_accessibility=False, 
+                    keywords=keywords, process_zip=process_zip, use_cache=use_cache
+                )
                 
                 if not file_result or not file_result['file_path']:
                     if keywords:
@@ -1103,6 +1116,7 @@ class RandomFilePickerGUI:
             self.open_file_var.set(config.get("open_file", True))
             self.use_sequence_var.set(config.get("use_sequence", True))
             self.process_zip_var.set(config.get("process_zip", True))
+            self.use_cache_var.set(config.get("use_cache", True))
             self.keywords_var.set(config.get("keywords", ""))
             self.history_limit_var.set(config.get("history_limit", 5))
             

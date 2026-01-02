@@ -351,7 +351,7 @@ def get_next_unread_file(sequences: List[Dict], tracker: SequentialFileTracker, 
 
 def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_L_", 
                                     use_sequence: bool = True, keywords: List[str] = None,
-                                    process_zip: bool = True) -> Tuple[Dict, Dict]:
+                                    process_zip: bool = True, use_cache: bool = True) -> Tuple[Dict, Dict]:
     """
     Seleciona um arquivo considerando lógica de sequência, com suporte a ZIP.
     
@@ -361,6 +361,7 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
         use_sequence: Se True, usa lógica de sequência quando detectada
         keywords: Lista de palavras-chave para filtrar arquivos
         process_zip: Se True, processa arquivos ZIP; se False, trata ZIPs como arquivos normais
+        use_cache: Se True, usa cache para acelerar busca (padrão: True)
         
     Returns:
         Tupla (dicionário com info do arquivo, informações sobre a seleção)

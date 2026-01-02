@@ -9,6 +9,8 @@ import zipfile
 import tempfile
 import shutil
 
+from .cache_manager import CacheManager
+
 
 def is_file_accessible(file_path: Path) -> bool:
     """
@@ -141,7 +143,7 @@ def cleanup_temp_dir(temp_dir: str):
 
 
 
-def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessibility: bool = False, keywords: List[str] = None) -> List[str]:
+def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessibility: bool = False, keywords: List[str] = None, use_cache: bool = True) -> List[str]:
     """
     Coleta todos os arquivos das pastas e subpastas informadas,
     excluindo arquivos que começam com o prefixo especificado.
@@ -154,11 +156,43 @@ def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessi
         check_accessibility: Se True, verifica se arquivos estão acessíveis localmente
         keywords: Lista de palavras-chave. Se fornecida, apenas arquivos que contenham
                  ao menos uma palavra-chave no nome serão incluídos.
+        use_cache: Se True, usa cache para acelerar buscas (padrão: True)
         
     Returns:
         Lista com os caminhos completos dos arquivos válidos
     """
+    cache_manager = CacheManager()
+    
+    # Tenta usar cache se habilitado
+    if use_cache and cache_manager.is_cache_valid(
+        folders, exclude_prefix, ".", keywords or [], False
+    ):
+        print("✓ Usando cache de arquivos (busca instantânea)...")
+        cached_files = cache_manager.get_cached_files()
+        
+        # Filtra por palavras-chave se necessário (cache pode ter todas)
+        if keywords:
+            keyword_lower = [k.lower() for k in keywords]
+            valid_files = [
+                f['path'] for f in cached_files 
+                if any(kw in Path(f['path']).name.lower() for kw in keyword_lower)
+            ]
+        else:
+            valid_files = [f['path'] for f in cached_files]
+        
+        cache_info = cache_manager.get_cache_info()
+        if cache_info:
+            cache_size = cache_info.get('file_size', 0) / 1024
+            print(f"  Cache: {len(cached_files)} arquivos ({cache_size:.1f} KB)")
+        
+        return valid_files
+    
+    # Busca normal se cache não disponível/inválido
+    if use_cache:
+        print("⏳ Criando novo cache (primeira busca pode demorar)...")
+    
     valid_files = []
+    file_data = []  # Para salvar no cache
     files_skipped = 0
     
     for folder in folders:
@@ -203,7 +237,24 @@ def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessi
                             files_skipped += 1
                             continue
                     
-                    valid_files.append(str(file_path))
+                    file_str = str(file_path)
+                    valid_files.append(file_str)
+                    
+                    # Armazena dados para cache
+                    try:
+                        file_stat = file_path.stat()
+                        file_data.append({
+                            'path': file_str,
+                            'size': file_stat.st_size,
+                            'mtime': file_stat.st_mtime,
+                            'name': file_path.name
+                        })
+                    except (OSError, PermissionError):
+                        # Se não conseguir stat, adiciona só o path
+                        file_data.append({
+                            'path': file_str,
+                            'name': file_path.name
+                        })
                     
                 except (OSError, PermissionError) as e:
                     # Ignora arquivos inacessíveis silenciosamente
@@ -216,6 +267,13 @@ def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessi
     
     if files_skipped > 0 and check_accessibility:
         print(f"\nAviso: {files_skipped} arquivo(s) ignorado(s) (não disponíveis localmente)")
+    
+    # Salva cache se habilitado
+    if use_cache and len(file_data) > 0:
+        cache_manager.save_cache(
+            file_data, folders, exclude_prefix, ".", keywords or [], False
+        )
+        print(f"✓ Cache criado: {len(file_data)} arquivos")
     
     return valid_files
 
@@ -275,7 +333,8 @@ def pick_random_file(folders: List[str], exclude_prefix: str = "_L_", check_acce
 
 def pick_random_file_with_zip_support(folders: List[str], exclude_prefix: str = "_L_", 
                                        check_accessibility: bool = False, 
-                                       keywords: List[str] = None, process_zip: bool = True) -> dict:
+                                       keywords: List[str] = None, process_zip: bool = True,
+                                       use_cache: bool = True) -> dict:
     """
     Seleciona aleatoriamente um arquivo das pastas informadas, com suporte a arquivos ZIP.
     Se um arquivo ZIP for selecionado, continua a busca dentro do ZIP.
@@ -286,6 +345,7 @@ def pick_random_file_with_zip_support(folders: List[str], exclude_prefix: str = 
         check_accessibility: Se True, verifica se arquivos estão acessíveis localmente
         keywords: Lista de palavras-chave para filtrar arquivos
         process_zip: Se True, processa arquivos ZIP; se False, trata ZIPs como arquivos normais
+        use_cache: Se True, usa cache para acelerar busca (padrão: True)
         
     Returns:
         Dicionário com:
@@ -298,7 +358,7 @@ def pick_random_file_with_zip_support(folders: List[str], exclude_prefix: str = 
     Raises:
         ValueError: Se nenhum arquivo válido for encontrado
     """
-    valid_files = collect_files(folders, exclude_prefix, check_accessibility, keywords)
+    valid_files = collect_files(folders, exclude_prefix, check_accessibility, keywords, use_cache)
     
     if not valid_files:
         if keywords:

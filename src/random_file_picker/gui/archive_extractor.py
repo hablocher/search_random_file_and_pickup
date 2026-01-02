@@ -145,9 +145,14 @@ class ArchiveExtractor:
                             self._log(f"✓ Imagem extraída: {image.size}")
                             archive_file.close()
                             return (image, page_count, None)
+                    except rarfile.BadRarFile as e:
+                        self._log(f"✗ BadRarFile ao extrair primeira imagem: {e}")
+                        # BadRarFile indica arquivo não totalmente sincronizado (OneDrive/GDrive)
+                        archive_file.close()
+                        return (None, page_count, 'SYNCING')
                     except Exception as e:
                         self._log(f"✗ Erro ao extrair primeira imagem: {type(e).__name__}: {e}")
-                        # Se falhar na primeira, retorna erro (não tenta outras)
+                        # Outro erro - retorna sem status SYNCING
                         archive_file.close()
                         return (None, page_count, None)
             
