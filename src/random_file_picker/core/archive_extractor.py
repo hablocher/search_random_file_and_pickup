@@ -3,7 +3,7 @@
 import io
 import zipfile
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Callable
 
 import rarfile
 from PIL import Image
@@ -13,6 +13,101 @@ try:
     HAS_PYMUPDF = True
 except ImportError:
     HAS_PYMUPDF = False
+
+
+def validate_rar_buffer(file_data: bytes, log_callback: Optional[Callable] = None) -> bool:
+    """Valida se o buffer contém um arquivo RAR válido completo.
+    
+    Args:
+        file_data: Bytes do arquivo RAR.
+        log_callback: Função de log opcional.
+        
+    Returns:
+        True se é um RAR válido e completo, False caso contrário.
+    """
+    def _log(msg):
+        if log_callback:
+            log_callback(msg)
+    
+    try:
+        _log("🔍 Validando buffer RAR...")
+        archive_file = rarfile.RarFile(io.BytesIO(file_data))
+        file_list = archive_file.namelist()
+        
+        # Tenta ler UMA imagem para validar conteúdo real
+        for filename in sorted(file_list):
+            if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                try:
+                    _log(f"   Testando leitura de: {filename}")
+                    with archive_file.open(filename) as img_file:
+                        # Tenta ler apenas 1KB para validação
+                        test_read = img_file.read(1024)
+                        _log(f"   Lidos {len(test_read)} bytes de teste")
+                        if len(test_read) < 100:  # Placeholder tem ~52 bytes
+                            _log("   ✗ Buffer inválido (placeholder detectado)")
+                            archive_file.close()
+                            return False
+                        # Buffer parece válido
+                        _log("   ✓ Buffer RAR válido!")
+                        archive_file.close()
+                        return True
+                except rarfile.BadRarFile as e:
+                    _log(f"   ✗ BadRarFile durante validação: {e}")
+                    archive_file.close()
+                    return False
+                except Exception as e:
+                    _log(f"   ✗ Erro durante validação: {e}")
+                    archive_file.close()
+                    return False
+        
+        archive_file.close()
+        _log("   ✓ Buffer RAR parece válido (nenhuma imagem para testar)")
+        return True
+    except Exception as e:
+        _log(f"   ✗ Erro ao validar RAR: {e}")
+        return False
+
+
+def validate_zip_buffer(file_data: bytes, log_callback: Optional[Callable] = None) -> bool:
+    """Valida se o buffer contém um arquivo ZIP válido completo.
+    
+    Args:
+        file_data: Bytes do arquivo ZIP.
+        log_callback: Função de log opcional.
+        
+    Returns:
+        True se é um ZIP válido e completo, False caso contrário.
+    """
+    def _log(msg):
+        if log_callback:
+            log_callback(msg)
+    
+    try:
+        _log("🔍 Validando buffer ZIP...")
+        archive_file = zipfile.ZipFile(io.BytesIO(file_data))
+        file_list = archive_file.namelist()
+        
+        # Tenta ler UMA imagem para validar conteúdo real
+        for filename in sorted(file_list):
+            if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                try:
+                    with archive_file.open(filename) as img_file:
+                        test_read = img_file.read(1024)
+                        if len(test_read) < 100:
+                            _log("   ✗ Buffer inválido (placeholder detectado)")
+                            archive_file.close()
+                            return False
+                        _log("   ✓ Buffer ZIP válido!")
+                        archive_file.close()
+                        return True
+                except Exception:
+                    archive_file.close()
+                    return False
+        
+        archive_file.close()
+        return True
+    except Exception:
+        return False
 
 
 class ArchiveExtractor:
@@ -238,13 +333,27 @@ class ArchiveExtractor:
             image, page_count = self.extract_from_pdf(file_data)
             return (image, page_count, None)
         
-        # RAR
+        # RAR - VALIDA BUFFER ANTES DE EXTRAIR
         if file_ext in ['.rar', '.cbr'] or detected_format in ['rar', 'rar5']:
+            self._log("📦 Detectado arquivo RAR/CBR")
+            
+            # Valida se o buffer é válido antes de tentar extrair
+            if not validate_rar_buffer(file_data, self.log_callback):
+                self._log("⚠ Buffer RAR inválido - arquivo não totalmente sincronizado")
+                return (None, 0, 'SYNCING')
+            
             image, page_count, status = self.extract_from_rar(file_data)
             return (image, page_count, status)
         
-        # ZIP
+        # ZIP - VALIDA BUFFER ANTES DE EXTRAIR
         if file_ext in ['.zip', '.cbz'] or detected_format == 'zip':
+            self._log("📦 Detectado arquivo ZIP/CBZ")
+            
+            # Valida se o buffer é válido antes de tentar extrair
+            if not validate_zip_buffer(file_data, self.log_callback):
+                self._log("⚠ Buffer ZIP inválido - arquivo não totalmente sincronizado")
+                return (None, 0, 'SYNCING')
+            
             image, page_count = self.extract_from_zip(file_data)
             return (image, page_count, None)
         

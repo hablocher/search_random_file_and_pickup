@@ -57,17 +57,15 @@ def is_cloud_placeholder(file_path: str) -> Tuple[bool, str]:
         try:
             file_size = path.stat().st_size
             
-            # Se o arquivo tem tamanho > 0, tenta ler uma pequena porção
-            if file_size > 1024:
+            # Se o arquivo tem tamanho > 0, tenta ler porções maiores
+            if file_size > 10240:  # Maior que 10KB
                 with open(path, 'rb') as f:
-                    # Lê os primeiros 1KB
-                    first_chunk = f.read(1024)
+                    # Lê os primeiros 10KB
+                    first_chunk = f.read(10240)
                     
                     # Verifica se é conteúdo real ou placeholder
-                    # Placeholders geralmente têm bytes repetidos ou padrões específicos
-                    if len(first_chunk) < 1024:
-                        # Não conseguiu ler 1KB de um arquivo grande = placeholder
-                        # Detecta pelo caminho se é OneDrive ou Google Drive
+                    if len(first_chunk) < 10240:
+                        # Não conseguiu ler 10KB de um arquivo grande = placeholder
                         path_str = str(path).lower()
                         if 'onedrive' in path_str:
                             return True, 'OneDrive'
@@ -75,18 +73,33 @@ def is_cloud_placeholder(file_path: str) -> Tuple[bool, str]:
                             return True, 'GoogleDrive'
                         return True, 'Cloud'
                     
-                    # Tenta ler do meio do arquivo
-                    f.seek(file_size // 2)
-                    mid_chunk = f.read(1024)
+                    # Tenta ler do meio do arquivo (vários pontos)
+                    test_positions = [
+                        file_size // 4,   # 25%
+                        file_size // 2,   # 50%
+                        file_size * 3 // 4  # 75%
+                    ]
                     
-                    if len(mid_chunk) < min(1024, file_size // 2):
-                        # Não conseguiu ler do meio = placeholder
+                    for pos in test_positions:
+                        if pos < file_size:
+                            f.seek(pos)
+                            chunk = f.read(4096)  # Lê 4KB
+                            
+                            if len(chunk) < min(4096, file_size - pos):
+                                # Não conseguiu ler do ponto esperado = placeholder
+                                path_str = str(path).lower()
+                                if 'onedrive' in path_str:
+                                    return True, 'OneDrive'
+                                elif 'google' in path_str or 'drive' in path_str:
+                                    return True, 'GoogleDrive'
+                                return True, 'Cloud'
+                    
+                    # Verifica padrões de placeholder (bytes repetidos)
+                    # Alguns placeholders têm padrões específicos
+                    if len(set(first_chunk)) < 10:  # Menos de 10 valores únicos em 10KB = suspeito
                         path_str = str(path).lower()
-                        if 'onedrive' in path_str:
-                            return True, 'OneDrive'
-                        elif 'google' in path_str or 'drive' in path_str:
-                            return True, 'GoogleDrive'
-                        return True, 'Cloud'
+                        if 'onedrive' in path_str or 'google' in path_str or 'drive' in path_str:
+                            return True, 'OneDrive' if 'onedrive' in path_str else 'GoogleDrive'
                         
         except (OSError, IOError):
             # Erro ao ler = pode ser placeholder

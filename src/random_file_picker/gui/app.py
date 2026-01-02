@@ -101,13 +101,26 @@ class RandomFilePickerGUI:
         folders_subframe.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N), pady=(0, 10))
         folders_subframe.columnconfigure(0, weight=1)
         
-        # Lista de pastas (ScrolledText) - Read-only
-        self.folders_text = scrolledtext.ScrolledText(folders_subframe, height=6, width=50, 
-                                                      font=('Consolas', 9), takefocus=0,
-                                                      state='disabled', cursor='arrow')
-        self.folders_text.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=(0, 5))
+        # Lista de pastas (Listbox com scrollbar para permitir seleção)
+        folders_list_frame = ttk.Frame(folders_subframe)
+        folders_list_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=(0, 5))
+        folders_list_frame.columnconfigure(0, weight=1)
         
-        # Frame para botões de adicionar/limpar pastas (inline)
+        folders_scrollbar = ttk.Scrollbar(folders_list_frame, orient="vertical")
+        self.folders_listbox = tk.Listbox(
+            folders_list_frame,
+            height=6,
+            width=50,
+            font=('Consolas', 9),
+            yscrollcommand=folders_scrollbar.set,
+            selectmode=tk.SINGLE
+        )
+        folders_scrollbar.config(command=self.folders_listbox.yview)
+        
+        self.folders_listbox.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        folders_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        
+        # Frame para botões de adicionar/remover/limpar pastas (inline)
         folders_buttons_inline = ttk.Frame(folders_subframe)
         folders_buttons_inline.grid(row=1, column=0, sticky=(tk.W), pady=(5, 0))
         
@@ -115,9 +128,13 @@ class RandomFilePickerGUI:
                                          command=self.add_folder, width=15)
         self.add_folder_btn.grid(row=0, column=0, padx=(0, 5))
         
+        self.remove_folder_btn = ttk.Button(folders_buttons_inline, text="Remover Selecionada", 
+                                           command=self.remove_selected_folder, width=18)
+        self.remove_folder_btn.grid(row=0, column=1, padx=(0, 5))
+        
         self.clear_folders_btn = ttk.Button(folders_buttons_inline, text="Limpar Tudo", 
                                            command=self.clear_folders, width=15)
-        self.clear_folders_btn.grid(row=0, column=1)
+        self.clear_folders_btn.grid(row=0, column=2)
         
         # Subframe: Configurações
         config_subframe = ttk.LabelFrame(left_container, text="Configurações", padding="5")
@@ -340,29 +357,36 @@ class RandomFilePickerGUI:
         """Abre diálogo para adicionar uma pasta."""
         folder = filedialog.askdirectory(title="Selecione uma pasta para buscar")
         if folder:
-            self.folders_text.config(state='normal')
-            current_text = self.folders_text.get("1.0", tk.END).strip()
-            if current_text:
-                self.folders_text.insert(tk.END, "\n" + folder)
+            # Verifica se a pasta já está na lista
+            current_folders = list(self.folders_listbox.get(0, tk.END))
+            if folder not in current_folders:
+                self.folders_listbox.insert(tk.END, folder)
+                self.log_message(f"Pasta adicionada: {folder}", "info")
+                self.check_config_changed()
             else:
-                self.folders_text.insert(tk.END, folder)
-            self.folders_text.config(state='disabled')
-            self.log_message(f"Pasta adicionada: {folder}", "info")
+                self.log_message(f"Pasta já existe na lista: {folder}", "warning")
             
+    def remove_selected_folder(self):
+        """Remove a pasta selecionada da lista."""
+        selection = self.folders_listbox.curselection()
+        if selection:
+            index = selection[0]
+            folder = self.folders_listbox.get(index)
+            self.folders_listbox.delete(index)
+            self.log_message(f"Pasta removida: {folder}", "info")
+            self.check_config_changed()
+        else:
+            messagebox.showinfo("Aviso", "Selecione uma pasta para remover!")
+    
     def clear_folders(self):
         """Limpa a lista de pastas."""
-        self.folders_text.config(state='normal')
-        self.folders_text.delete("1.0", tk.END)
-        self.folders_text.config(state='disabled')
+        self.folders_listbox.delete(0, tk.END)
         self.log_message("Lista de pastas limpa", "info")
+        self.check_config_changed()
         
     def get_folders_list(self):
         """Retorna a lista de pastas como uma lista."""
-        text = self.folders_text.get("1.0", tk.END).strip()
-        if not text:
-            return []
-        folders = [line.strip() for line in text.split("\n") if line.strip()]
-        return folders
+        return list(self.folders_listbox.get(0, tk.END))
     
     def get_keywords_list(self):
         """Retorna a lista de palavras-chave (máximo 3)."""
@@ -415,8 +439,8 @@ class RandomFilePickerGUI:
     
     def setup_change_tracking(self):
         """Configura rastreamento de mudanças."""
-        # Rastreia mudanças no texto de pastas
-        self.folders_text.bind('<<Modified>>', self._on_folders_modified)
+        # Listbox não tem evento Modified, rastrearemos via botões que modificam a lista
+        # (add_folder, remove_selected_folder, clear_folders já chamam check_config_changed)
         
         # Rastreia mudanças nas variáveis
         self.exclude_prefix_var.trace_add('write', lambda *args: self.check_config_changed())
@@ -435,14 +459,8 @@ class RandomFilePickerGUI:
         
         # Tab já funciona por padrão no tkinter para navegação entre campos
         # Mas vamos garantir que os widgets principais estejam na ordem correta de focus
-        # A ordem natural é: folders_text -> exclude_prefix_entry -> history_limit_spinbox 
+        # A ordem natural é: folders_listbox -> exclude_prefix_entry -> history_limit_spinbox 
         # -> keywords_entry -> checkboxes -> execute_btn -> save_config_btn
-    
-    def _on_folders_modified(self, event):
-        """Callback para quando o texto de pastas é modificado."""
-        if self.folders_text.edit_modified():
-            self.folders_text.edit_modified(False)
-            self.check_config_changed()
     
     def manual_save_config(self):
         """Salva a configuração manualmente."""
@@ -607,76 +625,137 @@ class RandomFilePickerGUI:
     
     def _load_file_to_buffer(self, file_path):
         """Carrega arquivo completo no buffer com chunks, progresso e cancelamento.
+        Aguarda até o buffer estar válido (arquivo totalmente sincronizado).
         
         Retorna: True se sucesso, False se cancelado
         """
-        try:
-            # NOVA VERIFICAÇÃO: Detecta se é placeholder de nuvem
-            from random_file_picker.core.file_loader import is_cloud_placeholder
-            
-            is_placeholder, cloud_service = is_cloud_placeholder(file_path)
-            
-            if is_placeholder:
+        import time
+        from pathlib import Path
+        
+        max_retries = 10  # Máximo de tentativas
+        retry_delay = 5   # Segundos entre tentativas
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                # NOVA VERIFICAÇÃO: Detecta se é placeholder de nuvem
+                from random_file_picker.core.file_loader import is_cloud_placeholder
+                
+                is_placeholder, cloud_service = is_cloud_placeholder(file_path)
+                
                 self.log_message(
-                    f"⚠ Arquivo ainda sincronizando do {cloud_service}",
-                    "warning"
-                )
-                self.log_message(
-                    f"O arquivo não está totalmente baixado. Aguarde a sincronização.",
-                    "warning"
-                )
-                self.log_message(
-                    f"Dica: Abra o arquivo uma vez para forçar o download completo.",
+                    f"🔍 Verificação de placeholder (tentativa {attempt}/{max_retries}): is_placeholder={is_placeholder}, service={cloud_service}",
                     "info"
                 )
-                # Retorna False para indicar que não pode carregar
-                self.file_data_buffer = None
-                return False
-            
-            self.log_message("Carregando arquivo completo na memória...", "info")
-            self.log_message("(Arquivos grandes podem levar alguns minutos)", "warning")
-            
-            # Mostra botão de cancelar
-            self.root.after(0, self.show_cancel_button)
-            
-            # Callback de progresso
-            def progress_callback(progress, bytes_read, elapsed):
-                self.root.after(0, lambda e=elapsed: self.update_cancel_button_time(e))
-                self.log_message(
-                    f"⏳ Carregando: {progress:.1f}% ({bytes_read / (1024*1024):.1f} MB)",
-                    "info"
+                
+                if is_placeholder and attempt < max_retries:
+                    self.log_message(
+                        f"⚠ Arquivo ainda sincronizando do {cloud_service}",
+                        "warning"
+                    )
+                    self.log_message(
+                        f"⏳ Aguardando {retry_delay} segundos antes de tentar novamente...",
+                        "info"
+                    )
+                    time.sleep(retry_delay)
+                    continue  # Tenta novamente
+                
+                if is_placeholder and attempt >= max_retries:
+                    self.log_message(
+                        f"❌ Arquivo continua sincronizando após {max_retries} tentativas",
+                        "error"
+                    )
+                    self.log_message(
+                        f"Dica: Abra o arquivo uma vez para forçar o download completo.",
+                        "info"
+                    )
+                    self.file_data_buffer = None
+                    return False
+                
+                self.log_message("Carregando arquivo completo na memória...", "info")
+                self.log_message("(Arquivos grandes podem levar alguns minutos)", "warning")
+                
+                # Mostra botão de cancelar
+                self.root.after(0, self.show_cancel_button)
+                
+                # Callback de progresso
+                def progress_callback(progress, bytes_read, elapsed):
+                    self.root.after(0, lambda e=elapsed: self.update_cancel_button_time(e))
+                    self.log_message(
+                        f"⏳ Carregando: {progress:.1f}% ({bytes_read / (1024*1024):.1f} MB)",
+                        "info"
+                    )
+                
+                # Callback de verificação de cancelamento
+                def cancel_check():
+                    return self.file_loader.cancel_requested
+                
+                # Usa FileLoader para carregar
+                file_data, success = self.file_loader.load_file(
+                    file_path,
+                    progress_callback=progress_callback,
+                    cancel_check_callback=cancel_check
                 )
-            
-            # Callback de verificação de cancelamento
-            def cancel_check():
-                return self.file_loader.cancel_requested
-            
-            # Usa FileLoader para carregar
-            file_data, success = self.file_loader.load_file(
-                file_path,
-                progress_callback=progress_callback,
-                cancel_check_callback=cancel_check
-            )
-            
-            # Oculta botão de cancelar
-            self.root.after(0, self.hide_cancel_button)
-            
-            if success:
-                self.file_data_buffer = file_data
-                elapsed = self.file_loader.get_elapsed_time()
-                self.log_message(
-                    f"✓ Arquivo carregado: {len(self.file_data_buffer)} bytes em {elapsed:.1f}s",
-                    "success"
-                )
-                return True
-            else:
-                self.log_message("❌ Carregamento cancelado pelo usuário", "error")
+                
+                # Oculta botão de cancelar
+                self.root.after(0, self.hide_cancel_button)
+                
+                if success and file_data:
+                    # VALIDA SE O BUFFER É VÁLIDO (não é placeholder)
+                    file_ext = Path(file_path).suffix.lower()
+                    buffer_valid = True
+                    
+                    if file_ext in ['.rar', '.cbr']:
+                        from random_file_picker.core.archive_extractor import validate_rar_buffer
+                        buffer_valid = validate_rar_buffer(file_data, self.log_message)
+                    elif file_ext in ['.zip', '.cbz']:
+                        from random_file_picker.core.archive_extractor import validate_zip_buffer
+                        buffer_valid = validate_zip_buffer(file_data, self.log_message)
+                    
+                    if not buffer_valid and attempt < max_retries:
+                        self.log_message(
+                            f"⚠ Buffer carregado mas inválido (placeholder) - tentativa {attempt}/{max_retries}",
+                            "warning"
+                        )
+                        self.log_message(
+                            f"⏳ Aguardando {retry_delay} segundos antes de tentar novamente...",
+                            "info"
+                        )
+                        time.sleep(retry_delay)
+                        continue  # Tenta recarregar
+                    
+                    if not buffer_valid and attempt >= max_retries:
+                        self.log_message(
+                            f"❌ Buffer continua inválido após {max_retries} tentativas",
+                            "error"
+                        )
+                        self.file_data_buffer = None
+                        return False
+                    
+                    # Buffer válido!
+                    self.file_data_buffer = file_data
+                    elapsed = self.file_loader.get_elapsed_time()
+                    self.log_message(
+                        f"✓ Arquivo carregado: {len(self.file_data_buffer)} bytes em {elapsed:.1f}s",
+                        "success"
+                    )
+                    return True
+                else:
+                    if not success:
+                        self.log_message("❌ Carregamento cancelado pelo usuário", "error")
+                        return False
+                
+            except Exception as e:
+                self.log_message(f"Erro ao carregar arquivo: {e}", "error")
+                self.root.after(0, self.hide_cancel_button)
+                if attempt < max_retries:
+                    self.log_message(f"Tentando novamente em {retry_delay} segundos...", "info")
+                    time.sleep(retry_delay)
+                    continue
                 return False
-            
-        except Exception as e:
-            self.log_message(f"Erro ao carregar arquivo: {e}", "error")
-            self.root.after(0, self.hide_cancel_button)
-            return False
+        
+        # Se chegou aqui, esgotou as tentativas
+        self.log_message("❌ Não foi possível carregar buffer válido", "error")
+        return False
     
 
     
@@ -1180,10 +1259,9 @@ class RandomFilePickerGUI:
             # Restaurar pastas
             folders = config.get("folders", [])
             if folders:
-                self.folders_text.config(state='normal')
-                self.folders_text.delete("1.0", tk.END)
-                self.folders_text.insert("1.0", "\n".join(folders))
-                self.folders_text.config(state='disabled')
+                self.folders_listbox.delete(0, tk.END)
+                for folder in folders:
+                    self.folders_listbox.insert(tk.END, folder)
                 self.log_message(f"Configuração carregada: {len(folders)} pasta(s)", "success")
             
             # Restaurar outras configurações
