@@ -3,11 +3,35 @@
 import io
 import zipfile
 import random
+import shutil
+import os
 from pathlib import Path
 from typing import Optional, Tuple, Callable
 
 import rarfile
 from PIL import Image
+
+# Configurar UnRAR automaticamente
+def _setup_unrar():
+    """Detecta e configura o UnRAR automaticamente."""
+    # Tenta encontrar UnRAR em locais comuns
+    possible_paths = [
+        r"C:\Program Files\WinRAR\UnRAR.exe",
+        r"C:\Program Files (x86)\WinRAR\UnRAR.exe",
+        shutil.which("unrar"),  # PATH do sistema
+        shutil.which("UnRAR"),
+        shutil.which("unrar.exe"),
+    ]
+    
+    for path in possible_paths:
+        if path and Path(path).exists():
+            rarfile.UNRAR_TOOL = path
+            return True
+    
+    # Se não encontrou, tenta usar a ferramenta padrão
+    return False
+
+_HAS_UNRAR = _setup_unrar()
 
 try:
     import ffmpeg
@@ -575,24 +599,40 @@ class ArchiveExtractor:
             # RAR (todas as versões: 1.5-3.x, 4.x, 5.x)
             if detected_format in ['rar', 'rar4', 'rar5']:
                 self._log(f"📦 Processando arquivo RAR ({detected_format.upper()})")
-                with rarfile.RarFile(file_path) as archive:
-                    file_list = archive.namelist()
-                    page_count = sum(1 for f in file_list 
-                                   if f.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp')))
-                    
-                    for filename in sorted(file_list):
-                        if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
-                            try:
-                                with archive.open(filename) as img_file:
-                                    image_data = img_file.read()
-                                    image = Image.open(io.BytesIO(image_data))
-                                    self._log(f"✓ Imagem extraída do RAR: {image.size}")
-                                    return (image, page_count, None)
-                            except Exception as e:
-                                self._log(f"✗ Erro ao extrair {filename}: {e}")
-                                continue
-                    
-                    return (None, page_count, None)
+                
+                # Verifica se UnRAR está disponível
+                if not _HAS_UNRAR:
+                    self._log("⚠ UnRAR não encontrado! Instale WinRAR para extrair arquivos RAR", "warning")
+                    self._log("  Download: https://www.win-rar.com/download.html", "info")
+                    return (None, 0, None)
+                
+                try:
+                    with rarfile.RarFile(file_path) as archive:
+                        file_list = archive.namelist()
+                        page_count = sum(1 for f in file_list 
+                                       if f.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp')))
+                        
+                        for filename in sorted(file_list):
+                            if filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                                try:
+                                    with archive.open(filename) as img_file:
+                                        image_data = img_file.read()
+                                        image = Image.open(io.BytesIO(image_data))
+                                        self._log(f"✓ Imagem extraída do RAR: {image.size}")
+                                        return (image, page_count, None)
+                                except Exception as e:
+                                    error_msg = str(e)
+                                    if "Cannot find working tool" in error_msg:
+                                        self._log("⚠ UnRAR não encontrado! Instale WinRAR", "warning")
+                                        return (None, page_count, None)
+                                    self._log(f"✗ Erro ao extrair {filename}: {e}")
+                                    continue
+                        
+                        return (None, page_count, None)
+                except Exception as e:
+                    if "Cannot find working tool" in str(e):
+                        self._log("⚠ UnRAR não encontrado! Instale WinRAR", "warning")
+                    return (None, 0, None)
             
             # ZIP
             if detected_format == 'zip':
