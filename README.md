@@ -9,7 +9,7 @@
 ---
 
 > [!IMPORTANT]
-> **Todo o código deste repositório foi inteiramente gerado por Inteligência Artificial**, mas completamente orientado por um humano. As IAs utilizadas foram **Claude 3.5 Sonnet** e **Gemini 1.5 Pro**.
+> **Todo o código deste repositório foi inteiramente gerado por Inteligência Artificial**, mas completamente orientado por um humano. As IAs utilizadas foram **Claude 4.5 Sonnet** e **Gemini 2.5 Pro**.
 
 ---
 

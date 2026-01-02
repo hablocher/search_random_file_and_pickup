@@ -582,6 +582,15 @@ logging.basicConfig(level=logging.DEBUG)
 
 ---
 
+## Agradecimentos
+
+O desenvolvimento e aprimoramento deste projeto contaram com o auxílio de tecnologias de inteligência artificial de ponta, que foram fundamentais para a geração de código, otimização de algoritmos e elaboração da documentação.
+
+- **Claude 4.5 Sonnet**: Utilizado para refatoração de código, análise de performance e desenvolvimento de novas funcionalidades.
+- **Gemini 2.5 Pro**: Empregado na geração de documentação técnica, correção de bugs complexos e na arquitetura de soluções.
+
+---
+
 ## 📝 Notas Finais
 
 ### Contribuindo
