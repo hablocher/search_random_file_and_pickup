@@ -366,7 +366,9 @@ class RandomFilePickerGUI:
         status_bar = ttk.Label(main_frame, textvariable=self.status_var, relief=tk.SUNKEN, 
                               anchor=tk.W)
         status_bar.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(5, 0))
-        
+    
+    # ========== GERENCIAMENTO DE PASTAS ==========
+    
     def add_folder(self):
         """Abre diálogo para adicionar uma pasta."""
         folder = filedialog.askdirectory(title="Selecione uma pasta para buscar")
@@ -411,6 +413,8 @@ class RandomFilePickerGUI:
         keywords = [kw.strip().lower() for kw in text.split(",") if kw.strip()]
         # Limita a 3 palavras-chave
         return keywords[:3]
+    
+    # ========== GERENCIAMENTO DE CONFIGURAÇÃO ==========
     
     def get_current_config(self):
         """Retorna a configuração atual."""
@@ -497,24 +501,12 @@ class RandomFilePickerGUI:
         except ValueError:
             pass
     
+    # ========== CANCELAMENTO E FECHAMENTO ==========
+    
     def cancel_file_loading(self):
         """Cancela o carregamento do arquivo."""
         self.file_loader.cancel()
         self.log_message("\n⚠ Cancelamento solicitado pelo usuário...", "warning")
-    
-    def show_cancel_button(self):
-        """Mostra o botão de cancelar."""
-        self.cancel_btn.grid()
-        self.cancel_btn.configure(state='normal')
-    
-    def hide_cancel_button(self):
-        """Oculta o botão de cancelar."""
-        self.cancel_btn.grid_remove()
-        self.cancel_btn.configure(text="Cancelar Carregamento")
-    
-    def update_cancel_button_time(self, elapsed):
-        """Atualiza o texto do botão com tempo decorrido."""
-        self.cancel_btn.configure(text=f"Cancelar ({elapsed:.0f}s)")
     
     def on_closing(self):
         """Handler para quando o usuário tenta fechar a janela."""
@@ -530,6 +522,8 @@ class RandomFilePickerGUI:
                 self.save_config()
         
         self.root.destroy()
+    
+    # ========== GERENCIAMENTO DE HISTÓRICO ==========
     
     def add_to_history(self, file_path):
         """Adiciona um arquivo ao histórico (máximo configurado)."""
@@ -989,59 +983,7 @@ class RandomFilePickerGUI:
         
         return False
     
-
-    
-    def _try_extract_from_zip(self, file_path):
-        """Tenta extrair imagem de arquivo ZIP (usa buffer já carregado)."""
-        if not self.file_data_buffer:
-            self.log_message("⚠ Buffer não carregado, pulando extração ZIP", "warning")
-            return (None, 0)
-        
-        self.log_message("Processando arquivo ZIP...", "info")
-        image, page_count = self.archive_extractor.extract_from_zip(self.file_data_buffer)
-        
-        if image:
-            self.log_message(f"✓ Imagem extraída do ZIP! Tamanho: {image.size}", "success")
-        else:
-            self.log_message("Nenhuma imagem encontrada no ZIP", "warning")
-        
-        return (image, page_count)
-    
-    def _try_extract_from_rar(self, file_path):
-        """Tenta extrair imagem de arquivo RAR (usa buffer já carregado)."""
-        if not self.file_data_buffer:
-            self.log_message("⚠ Buffer não carregado, pulando extração RAR", "warning")
-            return (None, 0)
-        
-        self.log_message("Processando arquivo RAR...", "info")
-        image, page_count, status = self.archive_extractor.extract_from_rar(self.file_data_buffer)
-        
-        if status == 'SYNCING':
-            self.log_message("⚠ Arquivo em sincronização com a nuvem", "warning")
-            self.log_message("💡 Dica: Abra o arquivo uma vez no explorador para forçar download completo", "info")
-            return ("SYNCING", page_count)
-        elif image:
-            self.log_message(f"✓ Imagem extraída do RAR! Tamanho: {image.size}", "success")
-            return (image, page_count)
-        else:
-            self.log_message("Nenhuma imagem encontrada no RAR", "warning")
-            return (None, 0)
-    
-    def _try_extract_from_pdf(self, file_path):
-        """Tenta extrair primeira página de arquivo PDF como imagem (usa buffer já carregado)."""
-        if not self.file_data_buffer:
-            self.log_message("⚠ Buffer não carregado, pulando extração PDF", "warning")
-            return (None, 0)
-        
-        self.log_message("Processando arquivo PDF...", "info")
-        image, page_count = self.archive_extractor.extract_from_pdf(self.file_data_buffer)
-        
-        if image:
-            self.log_message(f"✓ Primeira página extraída do PDF! Tamanho: {image.size}", "success")
-        else:
-            self.log_message("Não foi possível extrair página do PDF", "warning")
-        
-        return (image, page_count)
+    # ========== EXTRAÇÃO DE IMAGENS ==========
     
     def _extract_first_image_from_zip(self, file_path):
         """Extrai a primeira imagem (jpg/png) de um arquivo compactado (ZIP/RAR/PDF).
@@ -1101,6 +1043,8 @@ class RandomFilePickerGUI:
             
         except Exception as e:
             self.log_message(f"Erro ao analisar arquivo: {e}", "error")
+    
+    # ========== ANIMAÇÃO DE LOADING ==========
     
     def _create_loading_animation_frames(self):
         """Cria frames para animação de loading."""
@@ -1208,6 +1152,8 @@ class RandomFilePickerGUI:
             self.root.after_cancel(self.loading_animation_job)
             self.loading_animation_job = None
     
+    # ========== DISPLAY DE THUMBNAILS ==========
+    
     def _display_thumbnail(self, file_path):
         """Exibe a miniatura do arquivo selecionado."""
         # Para a animação de loading
@@ -1281,18 +1227,8 @@ class RandomFilePickerGUI:
                 self.root.update_idletasks()
                 self.root.update()
     
-    def _display_thumbnail_async(self, file_path):
-        """Wrapper para exibir miniatura em thread separada (evita travar interface)."""
-        try:
-            # Mostra mensagem de carregamento
-            self.root.after(0, lambda: self.thumbnail_label.configure(text="Carregando..."))
-            
-            # Executa o processamento da imagem
-            self._display_thumbnail(file_path)
-        except Exception as e:
-            # Em caso de erro, atualiza na thread principal
-            self.root.after(0, lambda: self.thumbnail_label.configure(image="", text="Erro ao carregar"))
-        
+    # ========== LOGGING ==========
+    
     def log_message(self, message, tag=None):
         """Adiciona uma mensagem ao log."""
         self.log_text.configure(state='normal')
@@ -1313,7 +1249,9 @@ class RandomFilePickerGUI:
         self.log_text.configure(state='normal')
         self.log_text.delete("1.0", tk.END)
         self.log_text.configure(state='disabled')
-        
+    
+    # ========== EXECUÇÃO PRINCIPAL ==========
+    
     def execute_selection(self):
         """Executa a seleção de arquivo aleatório."""
         if self.is_running:
@@ -1569,7 +1507,9 @@ class RandomFilePickerGUI:
             self.is_running = False
             self.root.after(0, lambda: self.execute_btn.configure(state='normal'))
             self.root.after(0, self.update_save_button_state)
-            
+    
+    # ========== SALVAR E CARREGAR CONFIGURAÇÃO ==========
+    
     def save_config(self):
         """Salva a configuração atual em um arquivo JSON."""
         config = {
