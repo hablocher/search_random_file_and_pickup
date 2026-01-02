@@ -43,6 +43,12 @@ class RandomFilePickerGUI:
         self.current_image = None  # Referência para imagem atual (evita garbage collection)
         self.file_data_buffer = None  # Buffer reutilizável para carregar arquivos (evita vazamento de memória)
         
+        # Controle de animação
+        self.loading_animation_running = False
+        self.loading_animation_frames = []
+        self.loading_animation_index = 0
+        self.loading_animation_job = None
+        
         # Módulos refatorados
         self.config_manager = ConfigManager(self.config_file)
         self.file_loader = FileLoader(chunk_size=1024 * 1024)  # 1MB chunks
@@ -1096,8 +1102,117 @@ class RandomFilePickerGUI:
         except Exception as e:
             self.log_message(f"Erro ao analisar arquivo: {e}", "error")
     
+    def _create_loading_animation_frames(self):
+        """Cria frames para animação de loading."""
+        import math
+        from PIL import ImageDraw
+        
+        frames = []
+        size = (200, 280)
+        num_frames = 12
+        num_dots = 8
+        
+        for frame in range(num_frames):
+            # Cria imagem de fundo
+            img = Image.new('RGB', size, color='#f0f0f0')
+            draw = ImageDraw.Draw(img)
+            
+            # Centro da imagem
+            center_x = size[0] // 2
+            center_y = size[1] // 2
+            
+            # Raio do círculo de pontos
+            radius = 40
+            dot_radius = 6
+            
+            # Desenha os pontos
+            for i in range(num_dots):
+                angle = (i / num_dots) * 2 * math.pi - (frame / num_frames) * 2 * math.pi
+                x = center_x + radius * math.cos(angle)
+                y = center_y + radius * math.sin(angle)
+                
+                # Opacidade varia com a posição
+                opacity = int(255 * (0.3 + 0.7 * (i / num_dots)))
+                color = (100, 150, 200, opacity)
+                
+                # Desenha o ponto
+                draw.ellipse(
+                    [x - dot_radius, y - dot_radius, x + dot_radius, y + dot_radius],
+                    fill=(100, 150, 200)
+                )
+            
+            # Adiciona texto
+            try:
+                from PIL import ImageFont
+                # Tenta usar fonte padrão
+                font = ImageFont.truetype("arial.ttf", 14)
+            except:
+                font = None
+            
+            text = "Buscando arquivo..."
+            # Calcula posição do texto
+            if font:
+                bbox = draw.textbbox((0, 0), text, font=font)
+                text_width = bbox[2] - bbox[0]
+                text_height = bbox[3] - bbox[1]
+            else:
+                text_width = len(text) * 7
+                text_height = 12
+            
+            text_x = center_x - text_width // 2
+            text_y = center_y + radius + 30
+            
+            draw.text((text_x, text_y), text, fill='#333333', font=font)
+            
+            frames.append(img)
+        
+        return frames
+    
+    def _start_loading_animation(self):
+        """Inicia a animação de loading."""
+        if not self.loading_animation_frames:
+            self.loading_animation_frames = self._create_loading_animation_frames()
+        
+        self.loading_animation_running = True
+        self.loading_animation_index = 0
+        self._animate_loading_frame()
+    
+    def _animate_loading_frame(self):
+        """Atualiza um frame da animação."""
+        if not self.loading_animation_running:
+            return
+        
+        try:
+            # Pega o frame atual
+            frame = self.loading_animation_frames[self.loading_animation_index]
+            photo = ImageTk.PhotoImage(frame)
+            
+            # Armazena referência
+            self.current_image = photo
+            
+            # Atualiza label
+            self.thumbnail_label.configure(image=photo, text="")
+            
+            # Avança para próximo frame
+            self.loading_animation_index = (self.loading_animation_index + 1) % len(self.loading_animation_frames)
+            
+            # Agenda próximo frame (83ms = ~12 FPS)
+            self.loading_animation_job = self.root.after(83, self._animate_loading_frame)
+        except:
+            self.loading_animation_running = False
+    
+    def _stop_loading_animation(self):
+        """Para a animação de loading."""
+        self.loading_animation_running = False
+        if self.loading_animation_job:
+            self.root.after_cancel(self.loading_animation_job)
+            self.loading_animation_job = None
+    
     def _display_thumbnail(self, file_path):
         """Exibe a miniatura do arquivo selecionado."""
+        # Para a animação de loading
+        self._stop_loading_animation()
+        
         self.log_message(f"\n=== Carregando miniatura de: {Path(file_path).name}", "info")
         
         # Analisa e exibe informações do arquivo em tabela
@@ -1221,6 +1336,9 @@ class RandomFilePickerGUI:
         self.save_config_btn.configure(state='disabled')
         self.status_var.set("Buscando arquivos...")
         self.clear_log()
+        
+        # Inicia animação de loading
+        self._start_loading_animation()
         
         keywords = self.get_keywords_list()
         
@@ -1440,6 +1558,9 @@ class RandomFilePickerGUI:
             self.root.after(0, lambda: self.status_var.set("Erro inesperado"))
             
         finally:
+            # Para a animação se ainda estiver rodando
+            self.root.after(0, self._stop_loading_animation)
+            
             # Limpa diretório temporário se foi criado
             if temp_dir_to_cleanup:
                 self.log_message("\nLimpando arquivos temporários...", "info")

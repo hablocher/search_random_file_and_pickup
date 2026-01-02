@@ -130,7 +130,7 @@ class ArchiveExtractor:
             file_data: Primeiros bytes do arquivo.
             
         Returns:
-            'zip', 'rar', 'rar5', '7z', 'pdf' ou None.
+            'zip', 'rar', 'rar4', 'rar5', '7z', 'pdf' ou None.
         """
         if len(file_data) < 10:
             return None
@@ -138,12 +138,15 @@ class ArchiveExtractor:
         # ZIP: 50 4B (PK)
         if file_data[:2] == b'PK':
             return 'zip'
-        # RAR 1.5-4.x: 52 61 72 21 1A 07 (Rar!)
-        elif file_data[:4] == b'Rar!':
-            return 'rar'
         # RAR 5+: 52 61 72 21 1A 07 01 00
-        elif file_data[:8] == b'Rar!\x1a\x07\x01\x00':
+        elif len(file_data) >= 8 and file_data[:8] == b'Rar!\x1a\x07\x01\x00':
             return 'rar5'
+        # RAR 4.x: 52 61 72 21 1A 07 00
+        elif len(file_data) >= 7 and file_data[:7] == b'Rar!\x1a\x07\x00':
+            return 'rar4'
+        # RAR 1.5-3.x: 52 61 72 21 1A 07 (Rar!)
+        elif file_data[:6] == b'Rar!\x1a\x07':
+            return 'rar'
         # 7-Zip: 37 7A BC AF 27 1C
         elif file_data[:6] == b'7z\xbc\xaf\x27\x1c':
             return '7z'
@@ -379,9 +382,9 @@ class ArchiveExtractor:
                 image, page_count = self.extract_from_pdf(file_data)
                 return (image, page_count, None)
             
-            # RAR
-            if detected_format in ['rar', 'rar5']:
-                self._log("📦 Processando arquivo RAR")
+            # RAR (todas as versões: 1.5-3.x, 4.x, 5.x)
+            if detected_format in ['rar', 'rar4', 'rar5']:
+                self._log(f"📦 Processando arquivo RAR ({detected_format.upper()})")
                 with rarfile.RarFile(file_path) as archive:
                     file_list = archive.namelist()
                     page_count = sum(1 for f in file_list 

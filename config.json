@@ -5,13 +5,15 @@
         "Y:/Quadrinhos"
     ],
     "exclude_prefix": "_L_",
-    "open_folder": true,
-    "open_file": true,
+    "open_folder": false,
+    "open_file": false,
     "use_sequence": true,
     "history_limit": 15,
     "keywords": "",
     "process_zip": true,
     "file_history": [
+        "L:\\Meu Drive\\Quadrinhos_1\\DC\\Batman\\Contos de Batman\\Contos de Batman - Volume 01 - ÐØØM™ Scans.pdf",
+        "L:\\Meu Drive\\Quadrinhos_1\\Outros\\Shaolin Cowboy\\Shaolin Cowboy - Volume 01 - Start Trek.cbr",
         "K:\\OneDrive\\LIVROS\\Quadrinhos_2\\15. Dark Horse\\A Filha da Espada\\A Filha da Espada #01.cbr",
         "Y:\\Quadrinhos\\Jornada nas Estrelas\\Jornada nas Estrelas II - A Ira de Khan #01(Vertigem-Proj Enterprise).cbr",
         "K:\\OneDrive\\LIVROS\\Quadrinhos_2\\29. A Saga do(a)(s)\\Mulher-Maravilha\\A Saga da Mulher Maravilha - Volume 01.cbr",
