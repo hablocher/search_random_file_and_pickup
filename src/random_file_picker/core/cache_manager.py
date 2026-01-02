@@ -15,9 +15,9 @@ class CacheManager:
         """Inicializa o gerenciador de cache.
         
         Args:
-            cache_file: Nome do arquivo de cache (será criado no diretório do script).
+            cache_file: Nome do arquivo de cache (será criado no diretório atual de execução).
         """
-        self.cache_file = Path(__file__).parent.parent.parent.parent / cache_file
+        self.cache_file = Path.cwd() / cache_file
         self.cache_data: Optional[Dict[str, Any]] = None
     
     def _get_config_hash(self, folders: List[str], read_prefix: str, 

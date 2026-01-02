@@ -1,27 +1,29 @@
 {
-  "folders": [
-    "L:/Meu Drive/Quadrinhos_1",
-    "K:/OneDrive/LIVROS/Quadrinhos_2",
-    "Y:/Quadrinhos",
-    "K:/Filmoteca",
-    "J:/TORRENTS"
-  ],
-  "exclude_prefix": "_L_",
-  "open_folder": true,
-  "open_file": true,
-  "use_sequence": true,
-  "history_limit": 10,
-  "keywords": "",
-  "file_history": [
-    "L:\\Meu Drive\\Quadrinhos_1\\Marvel\\Homem-Aranha\\Homem-Aranha e Deadpool - Volume 01.cbz",
-    "K:\\OneDrive\\LIVROS\\Quadrinhos_2\\03. Image\\Samaritana Veritas\\Samaritana #01.cbr",
-    "K:\\OneDrive\\LIVROS\\Quadrinhos_2\\09. Vertigo\\Vimanarama\\Vimanarama #01.cbr",
-    "K:\\OneDrive\\LIVROS\\Quadrinhos_2\\15. Dark Horse\\Exterminador do Futuro 2029\\O Exterminador do Futuro 2029 01 de 03.cbr",
-    "Y:\\Quadrinhos\\#01 - Coleção Conan\\A Espada Selvagem de Conan\\A Espada Selvagem de Conan (BR) - 001 de 205.cbr",
-    "L:\\Meu Drive\\Quadrinhos_1\\Outros\\A Floresta\\A Floresta - Volume 02.cbz",
-    "L:\\Meu Drive\\Quadrinhos_1\\Outros\\A Floresta\\A Floresta - Volume 01.cbz",
-    "L:\\Meu Drive\\Quadrinhos_1\\Outros\\Contos da Floresta do Suicídio\\Contos da Floresta do Suicídio 01 (2016).cbr",
-    "L:\\Meu Drive\\Quadrinhos_1\\Mangás\\Omega Complex\\Omega Complex - Volume 1 de 3.cbr",
-    "L:\\Meu Drive\\Quadrinhos_1\\Marvel\\Supremos\\Supremos Edição Definitiva - Volume 01.cbr"
-  ]
+    "folders": [
+        "L:/Meu Drive/Quadrinhos_1",
+        "K:/OneDrive/LIVROS/Quadrinhos_2",
+        "Y:/Quadrinhos",
+        "K:/Filmoteca",
+        "J:/TORRENTS"
+    ],
+    "exclude_prefix": "_L_",
+    "open_folder": true,
+    "open_file": true,
+    "use_sequence": true,
+    "history_limit": 10,
+    "keywords": "",
+    "process_zip": true,
+    "file_history": [
+        "K:\\OneDrive\\LIVROS\\Quadrinhos_2\\10. Archie Comics\\Archie\\Archie Comics #1.cbz",
+        "L:\\Meu Drive\\Quadrinhos_1\\Outros\\Luluzinha\\Almanaque da Luluzinha e do Bolinha Vol. 01.cbr",
+        "K:\\OneDrive\\LIVROS\\Quadrinhos_2\\02. DC\\Capitão Átomo\\A Queda e A Ascensão do Capitão Átomo #01.cbr",
+        "L:\\Meu Drive\\Quadrinhos_1\\Marvel\\Homem-Aranha\\Homem-Aranha e Deadpool - Volume 01.cbz",
+        "K:\\OneDrive\\LIVROS\\Quadrinhos_2\\03. Image\\Samaritana Veritas\\Samaritana #01.cbr",
+        "K:\\OneDrive\\LIVROS\\Quadrinhos_2\\09. Vertigo\\Vimanarama\\Vimanarama #01.cbr",
+        "K:\\OneDrive\\LIVROS\\Quadrinhos_2\\15. Dark Horse\\Exterminador do Futuro 2029\\O Exterminador do Futuro 2029 01 de 03.cbr",
+        "Y:\\Quadrinhos\\#01 - Coleção Conan\\A Espada Selvagem de Conan\\A Espada Selvagem de Conan (BR) - 001 de 205.cbr",
+        "L:\\Meu Drive\\Quadrinhos_1\\Outros\\A Floresta\\A Floresta - Volume 02.cbz",
+        "L:\\Meu Drive\\Quadrinhos_1\\Outros\\A Floresta\\A Floresta - Volume 01.cbz"
+    ],
+    "last_opened_folder": null
 }

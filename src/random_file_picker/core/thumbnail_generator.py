@@ -46,14 +46,20 @@ class ThumbnailGenerator:
         draw.rectangle([0, 0, self.max_size[0]-1, self.max_size[1]-1], 
                       outline='#999999', width=2)
         
-        # Adiciona texto no centro (usa fonte padrão)
-        bbox = draw.textbbox((0, 0), message)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
-        x = (self.max_size[0] - text_width) // 2
-        y = (self.max_size[1] - text_height) // 2
+        # Trata texto multilinha
+        lines = message.split('\n')
+        line_height = 15  # Altura aproximada de cada linha
+        total_height = len(lines) * line_height
+        y = (self.max_size[1] - total_height) // 2
         
-        draw.text((x, y), message, fill='#666666')
+        # Desenha cada linha centralizada
+        for line in lines:
+            if line.strip():  # Ignora linhas vazias para o cálculo
+                bbox = draw.textbbox((0, 0), line)
+                text_width = bbox[2] - bbox[0]
+                x = (self.max_size[0] - text_width) // 2
+                draw.text((x, y), line, fill='#666666')
+            y += line_height
         
         return img
     

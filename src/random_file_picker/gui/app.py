@@ -19,12 +19,12 @@ from random_file_picker.core.sequential_selector import (
 )
 from random_file_picker.utils.system_utils import get_default_app_info, format_app_info_for_log
 
-# Novos módulos refatorados
-from .config_manager import ConfigManager
-from .file_loader import FileLoader
-from .archive_extractor import ArchiveExtractor
-from .thumbnail_generator import ThumbnailGenerator
-from .file_analyzer import FileAnalyzer
+# Módulos refatorados (agora em core)
+from random_file_picker.core.config_manager import ConfigManager
+from random_file_picker.core.file_loader import FileLoader
+from random_file_picker.core.archive_extractor import ArchiveExtractor
+from random_file_picker.core.thumbnail_generator import ThumbnailGenerator
+from random_file_picker.core.file_analyzer import FileAnalyzer
 
 
 class RandomFilePickerGUI:
@@ -34,7 +34,7 @@ class RandomFilePickerGUI:
         self.root.geometry("800x600")
         self.root.minsize(600, 400)
         
-        self.config_file = Path(__file__).parent / "config.json"
+        self.config_file = Path.cwd() / "config.json"
         self.is_running = False
         self.config_changed = False
         self.initial_config = {}
@@ -772,6 +772,11 @@ class RandomFilePickerGUI:
             
             # Atualiza o label
             self.thumbnail_label.configure(image=photo, text="")
+            
+            # FORÇA a renderização imediata da miniatura (BLOQUEANTE)
+            self.root.update_idletasks()
+            self.root.update()
+            
             self.log_message("Miniatura exibida com sucesso!", "success")
             
             # Libera o buffer de memória após uso
@@ -789,8 +794,14 @@ class RandomFilePickerGUI:
                 photo = ImageTk.PhotoImage(image)
                 self.current_image = photo
                 self.thumbnail_label.configure(image=photo, text="")
+                
+                # FORÇA a renderização imediata
+                self.root.update_idletasks()
+                self.root.update()
             except:
                 self.thumbnail_label.configure(image="", text="Erro ao carregar imagem")
+                self.root.update_idletasks()
+                self.root.update()
     
     def _display_thumbnail_async(self, file_path):
         """Wrapper para exibir miniatura em thread separada (evita travar interface)."""
