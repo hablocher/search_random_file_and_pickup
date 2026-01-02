@@ -30,6 +30,7 @@ class RandomFilePickerGUI:
         self.config_changed = False
         self.initial_config = {}
         self.file_history = []  # Lista dos últimos 5 arquivos
+        self.last_opened_folder = None  # Última pasta aberta
         
         self.setup_ui()
         self.load_config()
@@ -178,6 +179,11 @@ class RandomFilePickerGUI:
                                          command=self.manual_save_config, state='disabled')
         self.save_config_btn.grid(row=0, column=1, padx=5)
         
+        # Botão de abrir última pasta
+        self.last_folder_btn = ttk.Button(button_frame, text="Última Pasta Aberta", 
+                                         command=self.open_last_folder, state='disabled')
+        self.last_folder_btn.grid(row=0, column=2, padx=5)
+        
         # Configurar estilo do botão (se disponível)
         try:
             style = ttk.Style()
@@ -298,7 +304,8 @@ class RandomFilePickerGUI:
             "use_sequence": self.use_sequence_var.get(),
             "history_limit": self.history_limit_var.get(),
             "keywords": self.get_keywords_list(),
-            "process_zip": self.process_zip_var.get()
+            "process_zip": self.process_zip_var.get(),
+            "last_opened_folder": self.last_opened_folder
         }
     
     def store_initial_config(self):
@@ -447,6 +454,31 @@ class RandomFilePickerGUI:
             self.log_message(f"Abrindo arquivo do histórico: {Path(file_path).name}", "info")
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao abrir arquivo: {e}")
+    
+    def open_last_folder(self):
+        """Abre a última pasta que foi aberta."""
+        if not self.last_opened_folder:
+            messagebox.showinfo("Informação", "Nenhuma pasta foi aberta ainda.")
+            return
+        
+        try:
+            if not Path(self.last_opened_folder).exists():
+                messagebox.showerror("Erro", "A pasta não existe mais!")
+                self.last_opened_folder = None
+                self.update_last_folder_button_state()
+                return
+            
+            open_folder(self.last_opened_folder)
+            self.log_message(f"Abrindo última pasta: {self.last_opened_folder}", "info")
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao abrir pasta: {e}")
+    
+    def update_last_folder_button_state(self):
+        """Atualiza o estado do botão de última pasta."""
+        if self.last_opened_folder and Path(self.last_opened_folder).exists():
+            self.last_folder_btn.config(state='normal')
+        else:
+            self.last_folder_btn.config(state='disabled')
     
     def _get_default_app(self, file_path):
         """Obtém o aplicativo padrão que abrirá o arquivo."""
@@ -667,6 +699,10 @@ class RandomFilePickerGUI:
                 # Se veio de ZIP, abre a pasta do ZIP, não a temporária
                 folder_to_open = file_result.get('zip_path', selected_file) if file_result.get('is_from_zip') else selected_file
                 open_folder(folder_to_open)
+                # Salva a última pasta aberta
+                folder_path = os.path.dirname(folder_to_open)
+                self.last_opened_folder = folder_path
+                self.update_last_folder_button_state()
                 status_parts.append("pasta aberta")
             else:
                 self.log_message("\nPasta não aberta (opção desmarcada)", "info")
@@ -785,6 +821,10 @@ class RandomFilePickerGUI:
             # Restaurar limite de histórico
             history_limit = config.get("history_limit", 5)
             self.history_limit_var.set(history_limit)
+            
+            # Restaurar última pasta aberta
+            self.last_opened_folder = config.get("last_opened_folder", None)
+            self.update_last_folder_button_state()
             
             self.update_history_buttons()
             
