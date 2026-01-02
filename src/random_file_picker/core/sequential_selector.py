@@ -4,7 +4,12 @@ import random
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 import os
-from random_file_picker import pick_random_file_with_zip_support, list_files_in_zip, extract_file_from_zip, get_temp_extraction_dir
+from random_file_picker.core.file_picker import (
+    pick_random_file_with_zip_support,
+    list_files_in_zip,
+    extract_file_from_zip,
+    get_temp_extraction_dir,
+)
 
 
 class SequentialFileTracker:

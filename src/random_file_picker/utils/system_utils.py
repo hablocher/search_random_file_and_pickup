@@ -9,9 +9,9 @@ from typing import Dict
 _system = platform.system()
 
 if _system == "Windows":
-    from system_utils_windows import get_default_app_info
+    from random_file_picker.utils.system_utils_windows import get_default_app_info
 elif _system == "Linux":
-    from system_utils_linux import get_default_app_info
+    from random_file_picker.utils.system_utils_linux import get_default_app_info
 else:
     # Fallback para sistemas não suportados (macOS, etc)
     def get_default_app_info(file_path: str) -> Dict[str, str]:

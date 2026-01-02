@@ -7,9 +7,14 @@ import platform
 import mimetypes
 from pathlib import Path
 import threading
-from random_file_picker import pick_random_file, open_folder
-from sequential_selector import select_file_with_sequence_logic, SequentialFileTracker, analyze_folder_sequence, get_next_unread_file
-from system_utils import get_default_app_info, format_app_info_for_log
+from random_file_picker.core.file_picker import pick_random_file, open_folder, pick_random_file_with_zip_support, cleanup_temp_dir
+from random_file_picker.core.sequential_selector import (
+    select_file_with_sequence_logic,
+    SequentialFileTracker,
+    analyze_folder_sequence,
+    get_next_unread_file,
+)
+from random_file_picker.utils.system_utils import get_default_app_info, format_app_info_for_log
 import time
 
 
@@ -140,7 +145,7 @@ class RandomFilePickerGUI:
         self.open_folder_check.grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(10, 0))
         
         # Checkbox para abrir arquivo
-        self.open_file_var = tk.BooleanVar(value=False)
+        self.open_file_var = tk.BooleanVar(value=True)
         self.open_file_check = ttk.Checkbutton(options_frame, 
                                                text="Abrir arquivo automaticamente após seleção",
                                                variable=self.open_file_var)
@@ -576,7 +581,6 @@ class RandomFilePickerGUI:
                     self.log_message(f"\nNenhuma sequência detectada - seleção aleatória", "info")
             else:
                 # Modo aleatório tradicional com suporte a ZIP
-                from random_file_picker import pick_random_file_with_zip_support
                 file_result = pick_random_file_with_zip_support(folders, exclude_prefix, check_accessibility=False, keywords=keywords, process_zip=process_zip)
                 
                 if not file_result or not file_result['file_path']:
@@ -707,7 +711,6 @@ class RandomFilePickerGUI:
         finally:
             # Limpa diretório temporário se foi criado
             if temp_dir_to_cleanup:
-                from random_file_picker import cleanup_temp_dir
                 self.log_message("\nLimpando arquivos temporários...", "info")
                 cleanup_temp_dir(temp_dir_to_cleanup)
             
