@@ -1,6 +1,6 @@
 # Random File Picker
 
-Programa Python com interface gráfica que seleciona arquivos de forma inteligente a partir de uma lista de pastas, com suporte a seleção sequencial, aleatória, cache inteligente e prévia de thumbnails.
+Programa Python com interface gráfica que seleciona arquivos de forma inteligente a partir de uma lista de pastas, com suporte a seleção sequencial, aleatória, cache inteligente e prévia de thumbnails para arquivos, vídeos e PDFs.
 
 ## 🎯 Funcionalidades
 
@@ -9,9 +9,13 @@ Programa Python com interface gráfica que seleciona arquivos de forma inteligen
 - **Gerenciamento de pastas** com adição e remoção via interface
 - **Log detalhado** de todas as operações realizadas
 - **Histórico persistente** dos últimos arquivos selecionados (configurável de 1 a 50)
-- **Prévia de thumbnails** para arquivos ZIP/RAR/PDF
+- **Prévia de thumbnails** para arquivos ZIP/RAR/PDF/Vídeos
   - Extrai e exibe a primeira imagem de arquivos compactados
   - Renderiza primeira página de PDFs
+  - **Busca capas de filmes online** (TMDb API - opcional)
+  - **Extrai frames de vídeos** como fallback (FFmpeg)
+  - Suporta MP4, AVI, MKV, WEBM, FLV, MOV, WMV
+  - Detecta arquivos de áudio (MP3, FLAC, OGG, WAV)
   - Indica quando arquivos estão sincronizando do OneDrive/Google Drive
 - **Tabela de informações** do arquivo selecionado (formato, tamanho, número de páginas)
 - **Barras de rolagem** nas áreas de opções e histórico para melhor navegação
@@ -75,11 +79,7 @@ Programa Python com interface gráfica que seleciona arquivos de forma inteligen
   ```
 - **rarfile**: Para extrair imagens de arquivos RAR/CBR
   ```bash
-# Usando Poetry (recomendado)
-poetry run rfp-gui
-
-# Ou diretamente com Python
-python -m random_file_picker.gui.app
+  pip install rarfile
   ```
   - **Windows**: Requer UnRAR.exe no PATH ou na pasta do script
   - **Linux**: `sudo apt install unrar` ou `sudo apt install unar`
@@ -87,17 +87,79 @@ python -m random_file_picker.gui.app
   ```bash
   pip install PyMuPDF
   ```
+- **ffmpeg-python**: Para extrair frames de vídeos
+  ```bash
+  pip install ffmpeg-python
+  ```
+  - **Requer FFmpeg instalado no sistema**: [Guia de instalação](docs/FFMPEG_INSTALL.md)
+- **requests**: Para buscar capas de filmes online
+  ```bash
+  pip install requests
+  ```
 
 ### Instalação completa
 
 ```bash
-pip install Pillow rarfile PyMuPDF
+pip install Pillow rarfile PyMuPDF ffmpeg-python requests
 ```
 
 Ou usando Poetry (recomendado):
 ```bash
 poetry install
 ```
+
+### Configuração Opcional: Capas de Filmes
+
+Para ativar a busca automática de capas de filmes:
+
+1. Obtenha uma API key gratuita do TMDb: https://www.themoviedb.org/settings/api
+2. Adicione ao `config.json`:
+   ```json
+   {
+     "tmdb_api_key": "sua_chave_aqui"
+   }
+   ```
+3. Veja o [guia completo de configuração](docs/TMDB_SETUP.md)
+
+Quando configurado, o sistema tentará buscar capas oficiais antes de extrair frames dos vídeos.
+  ```bash
+  pip install PyMuPDF
+  ```
+- **ffmpeg-python**: Para extrair frames de vídeos
+  ```bash
+  pip install ffmpeg-python
+  ```
+  - **Requer FFmpeg instalado no sistema**: [Guia de instalação](docs/FFMPEG_INSTALL.md)
+- **requests**: Para buscar capas de filmes online
+  ```bash
+  pip install requests
+  ```
+
+### Instalação completa
+
+```bash
+pip install Pillow rarfile PyMuPDF ffmpeg-python requests
+```
+
+Ou usando Poetry (recomendado):
+```bash
+poetry install
+```
+
+### Configuração Opcional: Capas de Filmes
+
+Para ativar a busca automática de capas de filmes:
+
+1. Obtenha uma API key gratuita do TMDb: https://www.themoviedb.org/settings/api
+2. Adicione ao `config.json`:
+   ```json
+   {
+     "tmdb_api_key": "sua_chave_aqui"
+   }
+   ```
+3. Veja o [guia completo de configuração](docs/TMDB_SETUP.md)
+
+Quando configurado, o sistema tentará buscar capas oficiais antes de extrair frames dos vídeos.
 
 ## 🚀 Como usar
 
@@ -229,6 +291,7 @@ O projeto foi refatorado para separação de responsabilidades:
 - **system_utils.py**: Interface unificada para detecção de aplicativos
 - **system_utils_windows.py**: Implementação Windows (Registry, assoc, ftype)
 - **system_utils_linux.py**: Implementação Linux (xdg-mime, gio, .desktop files)
+- **movie_poster.py**: Busca de capas de filmes via TMDb API
 
 ### Gerenciamento de Memória
 
@@ -304,13 +367,15 @@ Armazena todas as preferências do usuário:
 {
   "folders": ["C:\\Pasta1", "D:\\Pasta2"],
   "exclude_prefix": "_L_",
-  "open_folder": true,
-  "open_file": true,
+  "open_folder": false,
+  "open_file": false,
   "use_sequence": true,
   "process_zip": true,
+  "tmdb_api_key": "",
   "history_limit": 5,
   "keywords": "batman, year, one",
-  "file_history": ["C:\\file1.pdf", "D:\\file2.cbr"]
+  "file_history": ["C:\\file1.pdf", "D:\\file2.cbr"],
+  "last_opened_folder": null
 }
 ```
 
@@ -416,15 +481,24 @@ open_folder(arquivo)
 ## 🎮 Casos de Uso
 
 - **Leitura de quadrinhos/mangás**: Seleciona automaticamente o próximo capítulo não lido
-  - Suporta coleções em arquivos ZIP (ex: "Vingadores V4 (Bendis).zip")
+  - Suporta coleções em arquivos ZIP/RAR (ex: "Vingadores V4 (Bendis).cbz")
+  - **Prévia de thumbnails**: Veja a capa antes de abrir
+  - Cache acelera busca em grandes coleções
 - **Busca específica**: Use palavras-chave para encontrar arquivos de vários personagens, séries ou temas
   - Ex: `batman, superman, flash` encontra arquivos de qualquer um desses heróis
   - Ex: `2023, 2024` encontra arquivos de 2023 ou 2024
-  - Funciona também dentro de arquivos ZIP
+  - Funciona também dentro de arquivos ZIP/RAR
+- **Biblioteca de filmes**: Seleciona filmes aleatoriamente com prévia visual
+  - **Capas oficiais**: Busca automaticamente posters de filmes online (TMDb)
+  - **Fallback inteligente**: Extrai frame do vídeo se capa não for encontrada
+  - Suporta MP4, AVI, MKV, WEBM, FLV, MOV, WMV
+  - Parser inteligente remove informações técnicas (1080p, BluRay, x264, etc)
 - **Estudos**: Escolhe aleatoriamente materiais de estudo de várias pastas
+  - Prévia de PDFs mostra primeira página
 - **Entretenimento**: Seleciona filmes, séries ou músicas aleatoriamente
 - **Organização**: Gerencia leitura sequencial de documentos numerados
-- **Coleções compactadas**: Processa automaticamente arquivos ZIP que contêm múltiplos arquivos
+- **Coleções compactadas**: Processa automaticamente arquivos ZIP/RAR que contêm múltiplos arquivos
+- **Grandes bibliotecas**: Cache torna buscas instantâneas após primeira execução
 
 ## 🐛 Tratamento de Erros
 
@@ -443,12 +517,22 @@ O programa trata automaticamente:
 - Pastas com prefixo `.` são ignoradas automaticamente (ex: `.git`, `.vscode`)
 - Arquivos em cloud storage podem aparecer como "Não sincronizado" se ainda não foram baixados
 - A seleção sequencial funciona melhor quando os arquivos seguem um padrão consistente de numeração
-- **Arquivos ZIP**:
-  - Quando um ZIP é selecionado, o programa automaticamente explora seu conteúdo
-  - Aplica os mesmos filtros (palavras-chave, prefixo de exclusão) aos arquivos dentro do ZIP
+- **Arquivos ZIP/RAR**:
+  - Quando um arquivo compactado é selecionado, o programa automaticamente explora seu conteúdo
+  - Aplica os mesmos filtros (palavras-chave, prefixo de exclusão) aos arquivos internos
   - Extrai o arquivo selecionado para uma pasta temporária antes de abrir
+  - **Prévia**: Extrai primeira imagem diretamente do buffer (sem descompactar tudo)
   - Remove automaticamente os arquivos temporários após o uso
-  - No histórico, mostra o arquivo ZIP original (não o arquivo extraído)
+  - No histórico, mostra o arquivo compactado original
+- **Vídeos**:
+  - **Capas de filmes**: Se configurado TMDb API key, busca capa oficial primeiro
+  - **Frames**: Se capa não for encontrada, extrai frame aleatório do meio do vídeo (±5 min)
+  - **Formatos**: MP4, AVI, MKV, WEBM, FLV, MOV, WMV
+  - **Audio**: MP3, FLAC, OGG, WAV são detectados mas não têm prévia visual
+  - **Requer FFmpeg**: [Guia de instalação](docs/FFMPEG_INSTALL.md)
+- **PDFs**:
+  - Primeira página renderizada como thumbnail
+  - Suporta arquivos grandes (carrega em chunks)
 - **Palavras-chave**: 
   - Operação OR (ao menos uma deve estar presente no nome do arquivo)
   - Case-insensitive (não diferencia maiúsculas de minúsculas)
@@ -456,3 +540,32 @@ O programa trata automaticamente:
   - Deixe vazio para buscar todos os arquivos
 - O histórico é salvo automaticamente sempre que um novo arquivo é selecionado
 - Todas as configurações persistem entre sessões do programa
+- **Checkboxes padrão**: "Abrir pasta" e "Abrir arquivo" iniciam desmarcados
+
+## 📄 Licença
+
+Este projeto está licenciado sob a **GNU General Public License v3.0 (GPL-3.0)**.
+
+### O que isso significa:
+
+✅ **Você pode**:
+- Usar o software para qualquer propósito
+- Estudar e modificar o código fonte
+- Distribuir cópias do software
+- Distribuir versões modificadas
+- Usar comercialmente
+
+❌ **Você deve**:
+- Manter a mesma licença GPL-3.0 em trabalhos derivados
+- Disponibilizar o código fonte de versões modificadas
+- Documentar mudanças realizadas no código
+- Incluir o aviso de copyright e licença
+
+⚠️ **Sem garantia**: O software é fornecido "como está", sem garantias de qualquer tipo.
+
+Veja o arquivo [LICENSE](LICENSE) para o texto completo da licença ou acesse:
+https://www.gnu.org/licenses/gpl-3.0.html
+
+### Por que GPL v3?
+
+A GPL v3 foi escolhida para garantir que melhorias e modificações deste software permaneçam livres e abertas para toda a comunidade, promovendo o desenvolvimento colaborativo e transparente.

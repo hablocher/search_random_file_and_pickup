@@ -1,24 +1,24 @@
 [tool.poetry]
 name = "random-file-picker"
 version = "2.0.0"
-description = "Programa inteligente para seleção de arquivos com interface gráfica, suporte a sequencial/aleatório e cloud storage"
+description = "Programa inteligente para seleção de arquivos com interface gráfica, suporte a sequencial/aleatório, cloud storage, e busca de capas de filmes"
 authors = ["Seu Nome <seu.email@example.com>"]
 readme = "README.md"
-license = "MIT"
+license = "GPL-3.0-or-later"
 homepage = "https://github.com/seu-usuario/random-file-picker"
 repository = "https://github.com/seu-usuario/random-file-picker"
-keywords = ["file-picker", "random", "sequential", "gui", "tkinter"]
+keywords = ["file-picker", "random", "sequential", "gui", "tkinter", "movies", "videos"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: End Users/Desktop",
     "Topic :: Desktop Environment :: File Managers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 packages = [{include = "random_file_picker", from = "src"}]
 
