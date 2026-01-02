@@ -80,7 +80,7 @@ class RandomFilePickerGUI:
         self.file_loader = FileLoader(chunk_size=1024 * 1024)  # 1MB chunks
         # ArchiveExtractor será inicializado após carregar config (precisa da API key)
         self.archive_extractor = None
-        self.thumbnail_generator = ThumbnailGenerator(max_size=(200, 280))
+        self.thumbnail_generator = ThumbnailGenerator(max_size=(400, 600))
         self.file_analyzer = FileAnalyzer()
         
         self.setup_ui()
@@ -555,7 +555,9 @@ class RandomFilePickerGUI:
     
     def _save_and_close_popup(self, popup):
         """Salva a configuração e fecha o popup."""
-        self.manual_save_config()
+        self.save_config()
+        self.store_initial_config()
+        self.log_message("Configuração salva com sucesso!", "success")
         popup.destroy()
     
     # ========== CONTROLE DE FONTE DO LOG ==========
@@ -1485,9 +1487,6 @@ class RandomFilePickerGUI:
     
     def _display_thumbnail(self, file_path):
         """Exibe a miniatura do arquivo selecionado."""
-        # Para a animação de loading
-        self._stop_loading_animation()
-        
         self.log_message(f"\n=== Carregando miniatura de: {Path(file_path).name}", "info")
         
         # Analisa e exibe informações do arquivo em tabela
@@ -1618,8 +1617,7 @@ class RandomFilePickerGUI:
         self.status_var.set("Buscando arquivos...")
         self.clear_log()
         
-        # Inicia animação de loading e da roleta
-        self._start_loading_animation()
+        # Inicia animação da roleta
         self.start_spinning_animation()
         
         keywords = self.get_keywords_list()
@@ -1867,8 +1865,8 @@ class RandomFilePickerGUI:
             self.root.after(0, lambda: self.status_var.set("Erro inesperado"))
             
         finally:
-            # Para a animação se ainda estiver rodando
-            self.root.after(0, self._stop_loading_animation)
+            # Para a animação do botão
+            self.root.after(0, self.stop_spinning_animation)
             
             # NÃO remove arquivos temporários aqui - eles precisam permanecer
             # disponíveis para o aplicativo abrir o arquivo
@@ -1876,6 +1874,8 @@ class RandomFilePickerGUI:
             
             self.is_running = False
             self.root.after(0, lambda: self.execute_btn.configure(state='normal'))
+            self.root.after(0, lambda: self.execute_btn.grid())  # Mostra o botão de execução
+            self.root.after(0, lambda: self.cancel_btn.grid_remove())  # Esconde o botão de cancelar
             self.root.after(0, self.update_save_button_state)
     
     # ========== SALVAR E CARREGAR CONFIGURAÇÃO ==========
