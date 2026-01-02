@@ -376,7 +376,8 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
         'method': 'random',
         'sequence_detected': False,
         'folder': None,
-        'sequence_info': None
+        'sequence_info': None,
+        'total_files_found': 0
     }
     
     # Coleta todas as pastas únicas (não recursivo para lógica de sequência)
@@ -459,6 +460,7 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
             continue
     
     if all_files:
+        info['total_files_found'] = len(all_files)
         selected = random.choice(all_files)
         info['folder'] = str(Path(selected).parent)
         
