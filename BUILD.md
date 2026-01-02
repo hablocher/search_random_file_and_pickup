@@ -21,6 +21,24 @@ poetry run pyinstaller MediaFinder.spec --clean
 poetry run pyinstaller --name MediaFinder --windowed --onefile src/random_file_picker/gui/app.py
 ```
 
+## Como Usar o Executável
+
+1. **Localização do Executável**
+   - O arquivo estará em: `dist/MediaFinder.exe`
+   - Tamanho aproximado: 50-80 MB
+
+2. **Executando pela Primeira Vez**
+   - Duplo clique em `MediaFinder.exe`
+   - Não precisa instalar Python ou dependências
+   - O programa criará automaticamente:
+     - `config.json` (suas configurações)
+     - `read_files_tracker.json` (cache de arquivos)
+
+3. **Distribuindo para Outros Computadores**
+   - Copie apenas o arquivo `MediaFinder.exe`
+   - Funciona em qualquer Windows 10/11
+   - Não precisa instalar nada adicional
+
 ## Estrutura do Build
 
 O arquivo `MediaFinder.spec` define:
@@ -59,3 +77,4 @@ O executável tem aproximadamente 50-80MB devido ao Python embutido e todas as b
 - **Antivírus**: Alguns antivírus podem alertar sobre executáveis PyInstaller. Isso é um falso positivo comum.
 - **Primeira execução**: Pode demorar um pouco mais devido à descompactação inicial.
 - **Cache**: O programa cria um arquivo `read_files_tracker.json` para cache de arquivos.
+- **"Windows protegeu seu PC"**: Clique em "Mais informações" → "Executar assim mesmo". Isso acontece porque o executável não tem assinatura digital.
