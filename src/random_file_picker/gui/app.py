@@ -38,6 +38,8 @@ class RandomFilePickerGUI:
         self.last_opened_folder = None  # Última pasta aberta
         self.current_image = None  # Referência para imagem atual (evita garbage collection)
         self.file_data_buffer = None  # Buffer reutilizável para carregar arquivos (evita vazamento de memória)
+        self.cancel_loading = False  # Flag para cancelar carregamento
+        self.loading_start_time = None  # Tempo de início do carregamento
         
         self.setup_ui()
         self.load_config()
@@ -180,6 +182,12 @@ class RandomFilePickerGUI:
         self.execute_btn = ttk.Button(button_frame, text="Selecionar Arquivo Aleatório", 
                                       command=self.execute_selection, style='Accent.TButton')
         self.execute_btn.grid(row=0, column=0, padx=5)
+        
+        # Botão de cancelar (inicialmente oculto)
+        self.cancel_btn = ttk.Button(button_frame, text="Cancelar Carregamento",
+                                     command=self.cancel_file_loading, state='disabled')
+        self.cancel_btn.grid(row=1, column=0, padx=5, pady=(5, 0))
+        self.cancel_btn.grid_remove()  # Oculta o botão
         
         # Botão de salvar configuração
         self.save_config_btn = ttk.Button(button_frame, text="Salvar Configuração", 
@@ -400,6 +408,25 @@ class RandomFilePickerGUI:
         except ValueError:
             pass
     
+    def cancel_file_loading(self):
+        """Cancela o carregamento do arquivo."""
+        self.cancel_loading = True
+        self.log_message("\n⚠ Cancelamento solicitado pelo usuário...", "warning")
+    
+    def show_cancel_button(self):
+        """Mostra o botão de cancelar."""
+        self.cancel_btn.grid()
+        self.cancel_btn.configure(state='normal')
+    
+    def hide_cancel_button(self):
+        """Oculta o botão de cancelar."""
+        self.cancel_btn.grid_remove()
+        self.cancel_btn.configure(text="Cancelar Carregamento")
+    
+    def update_cancel_button_time(self, elapsed):
+        """Atualiza o texto do botão com tempo decorrido."""
+        self.cancel_btn.configure(text=f"Cancelar ({elapsed:.0f}s)")
+    
     def on_closing(self):
         """Handler para quando o usuário tenta fechar a janela."""
         if self.config_changed:
@@ -523,6 +550,63 @@ class RandomFilePickerGUI:
         except Exception as e:
             self.log_message(f"Erro ao abrir arquivo: {e}", "error")
     
+    def _load_file_to_buffer(self, file_path):
+        """Carrega arquivo completo no buffer com chunks, progresso e cancelamento.
+        
+        Retorna: True se sucesso, False se cancelado
+        """
+        try:
+            self.log_message("Carregando arquivo completo na memória...", "info")
+            self.log_message("(Arquivos grandes podem levar alguns minutos)", "warning")
+            
+            # Mostra botão de cancelar
+            self.root.after(0, self.show_cancel_button)
+            self.loading_start_time = time.time()
+            self.cancel_loading = False
+            
+            # Lê o arquivo em chunks para poder cancelar
+            chunk_size = 1024 * 1024  # 1MB por chunk
+            chunks = []
+            file_size = os.path.getsize(file_path)
+            bytes_read = 0
+            
+            with open(file_path, 'rb') as f:
+                while True:
+                    # Verifica cancelamento
+                    if self.cancel_loading:
+                        self.log_message("❌ Carregamento cancelado pelo usuário", "error")
+                        self.root.after(0, self.hide_cancel_button)
+                        return False
+                    
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    
+                    chunks.append(chunk)
+                    bytes_read += len(chunk)
+                    
+                    # Atualiza tempo a cada 0.5s
+                    elapsed = time.time() - self.loading_start_time
+                    if int(elapsed * 2) % 1 == 0:  # A cada 0.5s
+                        progress = (bytes_read / file_size * 100) if file_size > 0 else 0
+                        self.root.after(0, lambda e=elapsed: self.update_cancel_button_time(e))
+                        self.log_message(f"⏳ Carregando: {progress:.1f}% ({bytes_read / (1024*1024):.1f} MB)", "info")
+            
+            # Junta todos os chunks
+            self.file_data_buffer = b''.join(chunks)
+            elapsed_total = time.time() - self.loading_start_time
+            
+            # Oculta botão de cancelar
+            self.root.after(0, self.hide_cancel_button)
+            
+            self.log_message(f"✓ Arquivo carregado: {len(self.file_data_buffer)} bytes em {elapsed_total:.1f}s", "success")
+            return True
+            
+        except Exception as e:
+            self.log_message(f"Erro ao carregar arquivo: {e}", "error")
+            self.root.after(0, self.hide_cancel_button)
+            return False
+    
     def _detect_archive_format(self, file_path):
         """Detecta o formato do arquivo pela assinatura (magic bytes).
         
@@ -551,15 +635,13 @@ class RandomFilePickerGUI:
             return None
     
     def _try_extract_from_zip(self, file_path):
-        """Tenta extrair imagem de arquivo ZIP."""
+        """Tenta extrair imagem de arquivo ZIP (usa buffer já carregado)."""
         try:
-            # Primeiro, carrega o arquivo completo na memória para forçar download da nuvem
-            self.log_message("Carregando arquivo ZIP completo na memória...", "info")
-            with open(file_path, 'rb') as f:
-                self.file_data_buffer = f.read()  # Usa buffer reutilizável
-            self.log_message(f"✓ Arquivo carregado: {len(self.file_data_buffer)} bytes", "success")
+            if not self.file_data_buffer:
+                self.log_message("⚠ Buffer não carregado, pulando extração ZIP", "warning")
+                return (None, 0)
             
-            # Agora processa o ZIP da memória
+            # Processa o ZIP da memória (buffer já carregado)
             self.log_message("Processando arquivo ZIP...", "info")
             with zipfile.ZipFile(io.BytesIO(self.file_data_buffer), 'r') as zip_file:
                 file_list = zip_file.namelist()
@@ -593,102 +675,68 @@ class RandomFilePickerGUI:
             return (None, 0)
     
     def _try_extract_from_rar(self, file_path):
-        """Tenta extrair imagem de arquivo RAR."""
-        max_retries = 5
-        retry_delay = 3  # segundos (aumentado para dar tempo de sincronização)
-        
-        for attempt in range(max_retries):
-            try:
-                if attempt > 0:
-                    self.log_message(f"⏳ Tentativa {attempt + 1}/{max_retries} - Aguardando sincronização completa...", "warning")
-                    time.sleep(retry_delay)
-                    # Aumenta delay progressivamente
-                    retry_delay += 1
-                
-                # Primeiro, carrega o arquivo completo na memória para forçar download da nuvem
-                self.log_message("Carregando arquivo RAR completo na memória...", "info")
-                with open(file_path, 'rb') as f:
-                    self.file_data_buffer = f.read()  # Usa buffer reutilizável
-                self.log_message(f"✓ Arquivo carregado: {len(self.file_data_buffer)} bytes", "success")
-                
-                # Força um pequeno delay para garantir que o buffer está completo
-                if attempt == 0:
-                    time.sleep(1)  # Delay inicial para garantir cache
-                
-                # Agora processa o RAR da memória
-                self.log_message("Processando arquivo RAR...", "info")
-                archive_file = rarfile.RarFile(io.BytesIO(self.file_data_buffer), 'r')
-                file_list = archive_file.namelist()
-                page_count = len([f for f in file_list if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
-                self.log_message(f"✓ Arquivo RAR aberto! Arquivos encontrados: {len(file_list)}", "success")
-                
-                # Procura pela primeira imagem
-                for filename in sorted(file_list):
-                    lower_name = filename.lower()
-                    if lower_name.endswith(('.jpg', '.jpeg', '.png')) and not filename.startswith('__MACOSX'):
-                        self.log_message(f"Extraindo imagem: {filename}", "info")
-                        
-                        try:
-                            with archive_file.open(filename) as image_file:
-                                image_data = image_file.read()
-                                image = Image.open(io.BytesIO(image_data))
-                                self.log_message(f"✓ Imagem carregada: {image.size} {image.format}", "success")
-                                archive_file.close()
-                                return (image, page_count)
-                                
-                        except rarfile.BadRarFile as e:
-                            # Arquivo está parcialmente sincronizado - tenta novamente
-                            error_msg = str(e)
-                            self.log_message(f"⚠ Erro de sincronização: {error_msg}", "warning")
-                            
-                            # Se é a última tentativa, retorna SYNCING
-                            if attempt == max_retries - 1:
-                                self.log_message("❌ Arquivo ainda não está completamente sincronizado após várias tentativas", "error")
-                                self.log_message("⚠ O arquivo pode estar em nuvem e precisa ser baixado manualmente", "warning")
-                                self.log_message("💡 Dica: Abra o arquivo uma vez para forçar download completo", "info")
-                                archive_file.close()
-                                return ("SYNCING", page_count)
-                            
-                            # Caso contrário, limpa buffer e continua no loop para recarregar
-                            self.log_message(f"🔄 Limpando buffer e aguardando {retry_delay}s antes de tentar novamente...", "info")
+        """Tenta extrair imagem de arquivo RAR (usa buffer já carregado)."""
+        try:
+            if not self.file_data_buffer:
+                self.log_message("⚠ Buffer não carregado, pulando extração RAR", "warning")
+                return (None, 0)
+            
+            # Processa o RAR da memória (buffer já carregado)
+            self.log_message("Processando arquivo RAR...", "info")
+            archive_file = rarfile.RarFile(io.BytesIO(self.file_data_buffer), 'r')
+            file_list = archive_file.namelist()
+            page_count = len([f for f in file_list if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
+            self.log_message(f"✓ Arquivo RAR aberto! Arquivos encontrados: {len(file_list)}", "success")
+            
+            # Procura pela primeira imagem
+            for filename in sorted(file_list):
+                lower_name = filename.lower()
+                if lower_name.endswith(('.jpg', '.jpeg', '.png')) and not filename.startswith('__MACOSX'):
+                    self.log_message(f"Extraindo imagem: {filename}", "info")
+                    
+                    try:
+                        with archive_file.open(filename) as image_file:
+                            image_data = image_file.read()
+                            image = Image.open(io.BytesIO(image_data))
+                            self.log_message(f"✓ Imagem carregada: {image.size} {image.format}", "success")
                             archive_file.close()
-                            self.file_data_buffer = None  # Limpa buffer para forçar recarga
-                            break  # Sai do loop de arquivos para tentar recarregar
+                            return (image, page_count)
                             
-                        except Exception as e:
-                            self.log_message(f"Erro ao ler imagem do RAR: {e}", "warning")
-                            continue
-                
-                # Se chegou aqui, não encontrou imagens ou todas falharam
-                self.log_message("Nenhuma imagem JPG/PNG encontrada no RAR", "warning")
-                archive_file.close()
-                return (None, 0)
-                
-            except rarfile.BadRarFile as e:
-                # Erro ao abrir o RAR
-                if attempt < max_retries - 1:
-                    self.log_message(f"⚠ Erro ao abrir RAR: {e}", "warning")
-                    continue  # Tenta novamente
-                else:
-                    self.log_message("✗ Não é um arquivo RAR válido ou não está sincronizado", "warning")
-                    return (None, 0)
-            except Exception as e:
-                self.log_message(f"✗ Erro ao processar RAR: {e}", "error")
-                return (None, 0)
-        
-        # Se saiu do loop sem retornar, nenhuma imagem foi encontrada
-        return (None, 0)
+                    except rarfile.BadRarFile as e:
+                        # Arquivo está parcialmente sincronizado
+                        error_msg = str(e)
+                        self.log_message(f"⚠ Erro de sincronização: {error_msg}", "warning")
+                        self.log_message("⚠ O arquivo pode estar em nuvem e ainda não foi completamente baixado", "warning")
+                        self.log_message("💡 Dica: Abra o arquivo uma vez no explorador para forçar download completo", "info")
+                        archive_file.close()
+                        return ("SYNCING", page_count)
+                        
+                    except Exception as e:
+                        self.log_message(f"Erro ao ler imagem do RAR: {e}", "warning")
+                        continue
+            
+            # Se chegou aqui, não encontrou imagens
+            self.log_message("Nenhuma imagem JPG/PNG encontrada no RAR", "warning")
+            archive_file.close()
+            return (None, 0)
+            
+        except rarfile.BadRarFile as e:
+            self.log_message(f"✗ Não é um arquivo RAR válido: {e}", "warning")
+            self.root.after(0, self.hide_cancel_button)
+            return (None, 0)
+        except Exception as e:
+            self.log_message(f"✗ Erro ao processar RAR: {e}", "error")
+            self.root.after(0, self.hide_cancel_button)
+            return (None, 0)
     
     def _try_extract_from_pdf(self, file_path):
-        """Tenta extrair primeira página de arquivo PDF como imagem."""
+        """Tenta extrair primeira página de arquivo PDF como imagem (usa buffer já carregado)."""
         try:
-            # Primeiro, carrega o arquivo completo na memória para forçar download da nuvem
-            self.log_message("Carregando arquivo PDF completo na memória...", "info")
-            with open(file_path, 'rb') as f:
-                self.file_data_buffer = f.read()  # Usa buffer reutilizável
-            self.log_message(f"✓ Arquivo carregado: {len(self.file_data_buffer)} bytes", "success")
+            if not self.file_data_buffer:
+                self.log_message("⚠ Buffer não carregado, pulando extração PDF", "warning")
+                return (None, 0)
             
-            # Agora processa o PDF da memória
+            # Processa o PDF da memória (buffer já carregado)
             self.log_message("Processando arquivo PDF...", "info")
             doc = fitz.open(stream=self.file_data_buffer, filetype="pdf")
             
@@ -732,6 +780,11 @@ class RandomFilePickerGUI:
             file_stat = Path(file_path).stat()
             if file_stat.st_size < 1000:
                 self.log_message(f"Arquivo parece ser placeholder (tamanho: {file_stat.st_size} bytes)", "warning")
+                return (None, 0)
+            
+            # CARREGA O ARQUIVO NO BUFFER PRIMEIRO (com chunks e cancelamento)
+            if not self._load_file_to_buffer(file_path):
+                # Carregamento cancelado
                 return (None, 0)
             
             # Detecta formato pela assinatura do arquivo
