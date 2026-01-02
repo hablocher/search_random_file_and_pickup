@@ -143,7 +143,7 @@ def cleanup_temp_dir(temp_dir: str):
 
 
 
-def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessibility: bool = False, keywords: List[str] = None, use_cache: bool = True) -> List[str]:
+def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessibility: bool = False, keywords: List[str] = None, use_cache: bool = True, process_zip: bool = False) -> List[str]:
     """
     Coleta todos os arquivos das pastas e subpastas informadas,
     excluindo arquivos que começam com o prefixo especificado.
@@ -161,6 +161,15 @@ def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessi
     Returns:
         Lista com os caminhos completos dos arquivos válidos
     """
+    # DEBUG: Log para verificar se função é chamada
+    import datetime
+    debug_log = Path.cwd() / "debug_cache.log"
+    with open(debug_log, 'a', encoding='utf-8') as f:
+        f.write(f"\n[{datetime.datetime.now()}] collect_files chamado\n")
+        f.write(f"  use_cache={use_cache}\n")
+        f.write(f"  process_zip={process_zip}\n")
+        f.write(f"  folders={len(folders)}\n")
+    
     cache_manager = CacheManager()
     
     # Tenta usar cache se habilitado
@@ -270,9 +279,20 @@ def collect_files(folders: List[str], exclude_prefix: str = "_L_", check_accessi
     
     # Salva cache se habilitado
     if use_cache and len(file_data) > 0:
-        cache_manager.save_cache(
-            file_data, folders, exclude_prefix, ".", keywords or [], False
+        # DEBUG
+        with open(debug_log, 'a', encoding='utf-8') as f:
+            f.write(f"[{datetime.datetime.now()}] Tentando salvar cache\n")
+            f.write(f"  file_data count={len(file_data)}\n")
+        
+        success = cache_manager.save_cache(
+            file_data, folders, exclude_prefix, ".", keywords or [], process_zip
         )
+        
+        # DEBUG
+        with open(debug_log, 'a', encoding='utf-8') as f:
+            f.write(f"[{datetime.datetime.now()}] save_cache result={success}\n")
+            f.write(f"  cache_file={cache_manager.cache_file}\n")
+        
         print(f"✓ Cache criado: {len(file_data)} arquivos")
     
     return valid_files
@@ -358,7 +378,7 @@ def pick_random_file_with_zip_support(folders: List[str], exclude_prefix: str = 
     Raises:
         ValueError: Se nenhum arquivo válido for encontrado
     """
-    valid_files = collect_files(folders, exclude_prefix, check_accessibility, keywords, use_cache)
+    valid_files = collect_files(folders, exclude_prefix, check_accessibility, keywords, use_cache, process_zip)
     
     if not valid_files:
         if keywords:

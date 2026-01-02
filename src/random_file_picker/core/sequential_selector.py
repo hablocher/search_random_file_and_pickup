@@ -8,6 +8,7 @@ from random_file_picker.core.file_picker import (
     pick_random_file_with_zip_support,
     list_files_in_zip,
     extract_file_from_zip,
+    collect_files,
     get_temp_extraction_dir,
 )
 
@@ -407,6 +408,19 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
     folder_list = list(unique_folders)
     random.shuffle(folder_list)
     
+    # SEMPRE coleta arquivos usando collect_files (para aproveitar cache)
+    # Converte folder_list para strings (caminho das pastas BASE originais)
+    all_files = collect_files(
+        folders=folders,  # Usa pastas originais
+        exclude_prefix=exclude_prefix,
+        check_accessibility=False,
+        keywords=keywords,
+        use_cache=use_cache,
+        process_zip=False  # Não processa ZIP aqui, faz depois
+    )
+    
+    info['total_files_found'] = len(all_files)
+    
     # Se usar lógica de sequência, tenta encontrar pastas com sequências e arquivos não lidos
     if use_sequence:
         for folder in folder_list:
@@ -438,30 +452,9 @@ def select_file_with_sequence_logic(folders: List[str], exclude_prefix: str = "_
                         return file_result, info
     
     # Se não encontrou com lógica de sequência, seleciona aleatoriamente
-    # Coleta todos os arquivos válidos
-    all_files = []
-    for folder in folder_list:
-        try:
-            for file_path in folder.iterdir():
-                if not file_path.is_file():
-                    continue
-                
-                if file_path.name.startswith(exclude_prefix):
-                    continue
-                
-                # Filtra por palavras-chave se fornecidas
-                if keywords:
-                    file_name_lower = file_path.name.lower()
-                    # Verifica se ao menos UMA palavra-chave está no nome do arquivo
-                    if not any(keyword in file_name_lower for keyword in keywords):
-                        continue
-                
-                all_files.append(str(file_path))
-        except (OSError, PermissionError):
-            continue
+    info['method'] = 'random'
     
     if all_files:
-        info['total_files_found'] = len(all_files)
         selected = random.choice(all_files)
         info['folder'] = str(Path(selected).parent)
         

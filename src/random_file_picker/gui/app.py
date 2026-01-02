@@ -67,63 +67,98 @@ class RandomFilePickerGUI:
         
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(0, weight=1)
+        main_frame.columnconfigure(0, weight=3)  # Log (esquerda) - peso maior
+        main_frame.columnconfigure(1, weight=1)  # Thumbnail (meio)
+        main_frame.columnconfigure(2, weight=1)  # Histórico (direita)
+        main_frame.rowconfigure(1, weight=1)
         main_frame.rowconfigure(2, weight=1)
-        main_frame.rowconfigure(4, weight=1)
         
         # Título
         title_label = ttk.Label(main_frame, text="Selecionador Aleatório de Arquivos", 
                                font=('Arial', 14, 'bold'))
-        title_label.grid(row=0, column=0, columnspan=2, pady=(0, 10))
+        title_label.grid(row=0, column=0, columnspan=3, pady=(0, 10))
         
-        # Frame para lista de pastas
-        folders_frame = ttk.LabelFrame(main_frame, text="Pastas para buscar", padding="5")
-        folders_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
-        folders_frame.columnconfigure(0, weight=1)
-        folders_frame.rowconfigure(0, weight=1)
+        # Frame único para todas as opções
+        options_outer_frame = ttk.LabelFrame(main_frame, text="Opções", padding="10")
+        options_outer_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        options_outer_frame.columnconfigure(0, weight=1)
+        options_outer_frame.rowconfigure(0, weight=1)
+        
+        # Container principal dividido em: esquerda (opções) + direita (botões)
+        options_main_container = ttk.Frame(options_outer_frame)
+        options_main_container.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        options_main_container.columnconfigure(0, weight=1)
+        options_main_container.rowconfigure(0, weight=1)
+        
+        # === LADO ESQUERDO: Pastas e Opções ===
+        left_container = ttk.Frame(options_main_container)
+        left_container.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
+        left_container.columnconfigure(0, weight=1)
+        left_container.rowconfigure(1, weight=1)
+        
+        # Subframe: Pastas para buscar
+        folders_subframe = ttk.LabelFrame(left_container, text="Pastas para buscar", padding="5")
+        folders_subframe.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N), pady=(0, 10))
+        folders_subframe.columnconfigure(0, weight=1)
         
         # Lista de pastas (ScrolledText) - Read-only
-        self.folders_text = scrolledtext.ScrolledText(folders_frame, height=8, width=60, 
+        self.folders_text = scrolledtext.ScrolledText(folders_subframe, height=6, width=50, 
                                                       font=('Consolas', 9), takefocus=0,
                                                       state='disabled', cursor='arrow')
-        self.folders_text.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 5))
+        self.folders_text.grid(row=0, column=0, sticky=(tk.W, tk.E), padx=(0, 5))
         
-        # Frame para botões de pastas
-        folders_buttons_frame = ttk.Frame(folders_frame)
-        folders_buttons_frame.grid(row=0, column=1, sticky=(tk.N))
+        # Frame para botões de adicionar/limpar pastas (inline)
+        folders_buttons_inline = ttk.Frame(folders_subframe)
+        folders_buttons_inline.grid(row=1, column=0, sticky=(tk.W), pady=(5, 0))
         
-        self.add_folder_btn = ttk.Button(folders_buttons_frame, text="Adicionar Pasta", 
-                                         command=self.add_folder)
-        self.add_folder_btn.grid(row=0, column=0, pady=(0, 5), sticky=(tk.W, tk.E))
+        self.add_folder_btn = ttk.Button(folders_buttons_inline, text="Adicionar Pasta", 
+                                         command=self.add_folder, width=15)
+        self.add_folder_btn.grid(row=0, column=0, padx=(0, 5))
         
-        self.clear_folders_btn = ttk.Button(folders_buttons_frame, text="Limpar Tudo", 
-                                           command=self.clear_folders)
-        self.clear_folders_btn.grid(row=1, column=0, sticky=(tk.W, tk.E))
+        self.clear_folders_btn = ttk.Button(folders_buttons_inline, text="Limpar Tudo", 
+                                           command=self.clear_folders, width=15)
+        self.clear_folders_btn.grid(row=0, column=1)
         
-        # Frame para opções com scroll
-        options_outer_frame = ttk.LabelFrame(main_frame, text="Opções", padding="5")
-        options_outer_frame.grid(row=2, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
-        options_outer_frame.columnconfigure(0, weight=1)
+        # Subframe: Configurações
+        config_subframe = ttk.LabelFrame(left_container, text="Configurações", padding="5")
+        config_subframe.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        config_subframe.columnconfigure(0, weight=1)
+        config_subframe.rowconfigure(0, weight=1)
         
-        options_container = tk.Frame(options_outer_frame)
+        options_container = tk.Frame(config_subframe)
         options_container.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        options_canvas = tk.Canvas(options_container, height=120, borderwidth=0, highlightthickness=0)
+        # Canvas sem altura fixa - se ajusta ao conteúdo
+        options_canvas = tk.Canvas(options_container, borderwidth=0, highlightthickness=0)
         options_scrollbar = ttk.Scrollbar(options_container, orient="vertical", command=options_canvas.yview)
         options_frame = ttk.Frame(options_canvas)
         
         options_canvas.configure(yscrollcommand=options_scrollbar.set)
-        options_scrollbar.pack(side="right", fill="y")
-        options_canvas.pack(side="left", fill="both", expand=True)
         
         options_canvas_frame = options_canvas.create_window((0, 0), window=options_frame, anchor="nw")
-        options_frame.bind("<Configure>", lambda e: options_canvas.configure(scrollregion=options_canvas.bbox("all")))
+        
+        # Função para atualizar scrollregion e mostrar/ocultar scrollbar
+        def update_scroll_region(event=None):
+            options_canvas.configure(scrollregion=options_canvas.bbox("all"))
+            # Mostra scrollbar apenas se necessário
+            canvas_height = options_canvas.winfo_height()
+            content_height = options_frame.winfo_reqheight()
+            if content_height > canvas_height and canvas_height > 1:
+                options_scrollbar.pack(side="right", fill="y")
+            else:
+                options_scrollbar.pack_forget()
         
         # Ajusta a largura do frame interno quando o canvas é redimensionado
         def on_canvas_configure(event):
             options_canvas.itemconfig(options_canvas_frame, width=event.width)
+            update_scroll_region()
+        
+        options_frame.bind("<Configure>", update_scroll_region)
         options_canvas.bind("<Configure>", on_canvas_configure)
         
+        options_canvas.pack(side="left", fill="both", expand=True)
+        
+        # Linha 0: Prefixo de arquivo
         ttk.Label(options_frame, text="Prefixo de arquivo lido:").grid(row=0, column=0, 
                                                                             sticky=tk.W, padx=(0, 5))
         self.exclude_prefix_var = tk.StringVar(value="_L_")
@@ -131,89 +166,91 @@ class RandomFilePickerGUI:
                                              width=15)
         self.exclude_prefix_entry.grid(row=0, column=1, sticky=tk.W)
         
-        ttk.Label(options_frame, text="Limite de histórico (1-50):").grid(row=0, column=2, 
-                                                                            sticky=tk.W, padx=(20, 5))
+        info_label = ttk.Label(options_frame, 
+                              text="(Pastas com '.' são ignoradas automaticamente)",
+                              font=('Arial', 8, 'italic'))
+        info_label.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(2, 5))
+        
+        # Linha 2: Limite de histórico
+        ttk.Label(options_frame, text="Limite de histórico (1-50):").grid(row=2, column=0, 
+                                                                            sticky=tk.W, padx=(0, 5))
         self.history_limit_var = tk.IntVar(value=5)
         self.history_limit_spinbox = ttk.Spinbox(options_frame, from_=1, to=50, 
                                                  textvariable=self.history_limit_var, 
                                                  width=10)
-        self.history_limit_spinbox.grid(row=0, column=3, sticky=tk.W)
+        self.history_limit_spinbox.grid(row=2, column=1, sticky=tk.W)
         
-        info_label = ttk.Label(options_frame, 
-                              text="(Pastas com '.' são ignoradas automaticamente)",
-                              font=('Arial', 8, 'italic'))
-        info_label.grid(row=1, column=0, columnspan=2, sticky=tk.W, pady=(5, 0))
-        
-        # Campo para palavras-chave
+        # Linha 3-5: Palavras-chave
         ttk.Label(options_frame, text="Palavras-chave (máx. 3, separadas por vírgula):").grid(
-            row=1, column=2, columnspan=2, sticky=tk.W, padx=(20, 5), pady=(5, 0))
+            row=3, column=0, columnspan=2, sticky=tk.W, pady=(10, 2))
         self.keywords_var = tk.StringVar(value="")
         self.keywords_entry = ttk.Entry(options_frame, textvariable=self.keywords_var, width=40)
-        self.keywords_entry.grid(row=2, column=2, columnspan=2, sticky=(tk.W, tk.E), padx=(20, 0))
+        self.keywords_entry.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E))
         
         keywords_info = ttk.Label(options_frame,
                                  text="(Arquivo deve conter ao menos UMA das palavras-chave no nome)",
                                  font=('Arial', 8, 'italic'))
-        keywords_info.grid(row=3, column=2, columnspan=2, sticky=tk.W, padx=(20, 0))
+        keywords_info.grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(2, 5))
         
-        # Checkbox para abrir pasta
+        # Checkboxes
         self.open_folder_var = tk.BooleanVar(value=True)
         self.open_folder_check = ttk.Checkbutton(options_frame, 
                                                  text="Abrir pasta automaticamente após seleção",
                                                  variable=self.open_folder_var)
-        self.open_folder_check.grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(10, 0))
+        self.open_folder_check.grid(row=6, column=0, columnspan=2, sticky=tk.W, pady=(5, 2))
         
-        # Checkbox para abrir arquivo
         self.open_file_var = tk.BooleanVar(value=True)
         self.open_file_check = ttk.Checkbutton(options_frame, 
                                                text="Abrir arquivo automaticamente após seleção",
                                                variable=self.open_file_var)
-        self.open_file_check.grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
+        self.open_file_check.grid(row=7, column=0, columnspan=2, sticky=tk.W, pady=2)
         
-        # Checkbox para usar seleção sequencial
         self.use_sequence_var = tk.BooleanVar(value=True)
         self.use_sequence_check = ttk.Checkbutton(options_frame, 
                                                   text="Usar seleção sequencial (detecta ordenação em pastas)",
                                                   variable=self.use_sequence_var)
-        self.use_sequence_check.grid(row=6, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
+        self.use_sequence_check.grid(row=8, column=0, columnspan=2, sticky=tk.W, pady=2)
         
-        # Checkbox para processar arquivos ZIP
         self.process_zip_var = tk.BooleanVar(value=True)
         self.process_zip_check = ttk.Checkbutton(options_frame, 
                                                  text="Processar arquivos ZIP (buscar dentro de arquivos compactados)",
                                                  variable=self.process_zip_var)
-        self.process_zip_check.grid(row=7, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
+        self.process_zip_check.grid(row=9, column=0, columnspan=2, sticky=tk.W, pady=2)
         
-        # Checkbox para usar cache
         self.use_cache_var = tk.BooleanVar(value=True)
         self.use_cache_check = ttk.Checkbutton(options_frame, 
                                                text="Usar cache de arquivos (busca instantânea após primeira execução)",
                                                variable=self.use_cache_var)
-        self.use_cache_check.grid(row=8, column=0, columnspan=2, sticky=tk.W, pady=(2, 0))
+        self.use_cache_check.grid(row=10, column=0, columnspan=2, sticky=tk.W, pady=2)
         
-        # Botão de execução
-        button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=3, column=0, columnspan=2, pady=(0, 10))
+        # === LADO DIREITO: Botões verticais ===
+        right_container = ttk.Frame(options_main_container)
+        right_container.grid(row=0, column=1, sticky=(tk.N))
         
-        self.execute_btn = ttk.Button(button_frame, text="Selecionar Arquivo Aleatório", 
-                                      command=self.execute_selection, style='Accent.TButton')
-        self.execute_btn.grid(row=0, column=0, padx=5)
+        # Botão de execução (principal)
+        self.execute_btn = ttk.Button(right_container, text="Selecionar Arquivo\nAleatório", 
+                                      command=self.execute_selection, style='Accent.TButton',
+                                      width=20)
+        self.execute_btn.grid(row=0, column=0, pady=(0, 10), sticky=(tk.W, tk.E))
         
         # Botão de cancelar (inicialmente oculto)
-        self.cancel_btn = ttk.Button(button_frame, text="Cancelar Carregamento",
-                                     command=self.cancel_file_loading, state='disabled')
-        self.cancel_btn.grid(row=1, column=0, padx=5, pady=(5, 0))
+        self.cancel_btn = ttk.Button(right_container, text="Cancelar Carregamento",
+                                     command=self.cancel_file_loading, state='disabled',
+                                     width=20)
+        self.cancel_btn.grid(row=1, column=0, pady=(0, 10), sticky=(tk.W, tk.E))
         self.cancel_btn.grid_remove()  # Oculta o botão
         
         # Botão de salvar configuração
-        self.save_config_btn = ttk.Button(button_frame, text="Salvar Configuração", 
-                                         command=self.manual_save_config, state='disabled')
-        self.save_config_btn.grid(row=0, column=1, padx=5)
+        self.save_config_btn = ttk.Button(right_container, text="Salvar Configuração", 
+                                         command=self.manual_save_config, state='disabled',
+                                         width=20)
+        self.save_config_btn.grid(row=2, column=0, pady=(0, 10), sticky=(tk.W, tk.E))
         
         # Botão de abrir última pasta
-        self.last_folder_btn = ttk.Button(button_frame, text="Última Pasta Aberta", 
-                                         command=self.open_last_folder, state='disabled')
-        self.last_folder_btn.grid(row=0, column=2, padx=5)
+        self.last_folder_btn = ttk.Button(right_container, text="Última Pasta Aberta", 
+                                         command=self.open_last_folder, state='disabled',
+                                         width=20)
+        self.last_folder_btn.grid(row=3, column=0, sticky=(tk.W, tk.E))
         
         # Configurar estilo do botão (se disponível)
         try:
@@ -224,7 +261,7 @@ class RandomFilePickerGUI:
         
         # Frame para log/resultado
         log_frame = ttk.LabelFrame(main_frame, text="Log / Resultado", padding="5")
-        log_frame.grid(row=4, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        log_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         log_frame.columnconfigure(0, weight=1)
         log_frame.rowconfigure(0, weight=1)
         
@@ -241,7 +278,7 @@ class RandomFilePickerGUI:
         
         # Frame para miniatura da imagem
         thumbnail_frame = ttk.LabelFrame(main_frame, text="Prévia do Arquivo", padding="5")
-        thumbnail_frame.grid(row=3, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0), pady=(0, 10))
+        thumbnail_frame.grid(row=2, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(10, 0))
         thumbnail_frame.columnconfigure(0, weight=1)
         thumbnail_frame.rowconfigure(0, weight=1)
         
@@ -252,7 +289,7 @@ class RandomFilePickerGUI:
         
         # Frame para histórico de arquivos
         history_frame = ttk.LabelFrame(main_frame, text="Últimos Arquivos Selecionados", padding="5")
-        history_frame.grid(row=4, column=1, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(5, 0))
+        history_frame.grid(row=2, column=2, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(10, 0))
         history_frame.columnconfigure(0, weight=1)
         history_frame.rowconfigure(0, weight=1)
         
