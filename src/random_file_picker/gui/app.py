@@ -240,6 +240,12 @@ class RandomFilePickerGUI:
                                                variable=self.use_cache_var)
         self.use_cache_check.grid(row=10, column=0, columnspan=2, sticky=tk.W, pady=2)
         
+        # Botão de salvar configuração dentro das Configurações
+        self.save_config_btn = ttk.Button(options_frame, text="Salvar Configuração", 
+                                         command=self.manual_save_config, state='disabled',
+                                         width=20)
+        self.save_config_btn.grid(row=11, column=0, columnspan=2, pady=(10, 0), sticky=tk.W)
+        
         # === LADO DIREITO: Botões verticais ===
         right_container = ttk.Frame(options_main_container)
         right_container.grid(row=0, column=1, sticky=(tk.N))
@@ -256,18 +262,6 @@ class RandomFilePickerGUI:
                                      width=20)
         self.cancel_btn.grid(row=1, column=0, pady=(0, 10), sticky=(tk.W, tk.E))
         self.cancel_btn.grid_remove()  # Oculta o botão
-        
-        # Botão de salvar configuração
-        self.save_config_btn = ttk.Button(right_container, text="Salvar Configuração", 
-                                         command=self.manual_save_config, state='disabled',
-                                         width=20)
-        self.save_config_btn.grid(row=2, column=0, pady=(0, 10), sticky=(tk.W, tk.E))
-        
-        # Botão de abrir última pasta
-        self.last_folder_btn = ttk.Button(right_container, text="Última Pasta Aberta", 
-                                         command=self.open_last_folder, state='disabled',
-                                         width=20)
-        self.last_folder_btn.grid(row=3, column=0, sticky=(tk.W, tk.E))
         
         # Configurar estilo do botão (se disponível)
         try:
@@ -340,10 +334,18 @@ class RandomFilePickerGUI:
         self.history_canvas.bind("<Configure>", lambda e: self.history_canvas.itemconfig(
             self.history_canvas_frame, width=e.width))
         
-        # Suporte a scroll com mouse wheel
+        # Suporte a scroll com mouse wheel (apenas quando mouse estiver sobre o canvas)
         def on_mousewheel(event):
             self.history_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-        self.history_canvas.bind_all("<MouseWheel>", on_mousewheel)
+        
+        def on_enter(event):
+            self.history_canvas.bind("<MouseWheel>", on_mousewheel)
+        
+        def on_leave(event):
+            self.history_canvas.unbind("<MouseWheel>")
+        
+        self.history_canvas.bind("<Enter>", on_enter)
+        self.history_canvas.bind("<Leave>", on_leave)
         
         self.history_buttons = []
         
@@ -547,6 +549,10 @@ class RandomFilePickerGUI:
             btn.destroy()
         self.history_buttons.clear()
         
+        # Configura peso das colunas no frame
+        self.history_buttons_frame.columnconfigure(0, weight=1)
+        self.history_buttons_frame.columnconfigure(1, weight=0)
+        
         # Cria novos botões
         for idx, file_path in enumerate(self.file_history):
             file_name = Path(file_path).name
@@ -554,13 +560,24 @@ class RandomFilePickerGUI:
             # Trunca nome se muito longo
             display_name = file_name if len(file_name) <= 40 else file_name[:37] + "..."
             
+            # Botão principal (abre arquivo)
             btn = ttk.Button(
                 self.history_buttons_frame,
                 text=f"{idx + 1}. {display_name}",
                 command=lambda fp=file_path: self.open_history_file(fp)
             )
-            btn.grid(row=idx, column=0, sticky=(tk.W, tk.E), pady=2)
+            btn.grid(row=idx, column=0, sticky=(tk.W, tk.E), pady=2, padx=(0, 2))
             self.history_buttons.append(btn)
+            
+            # Botão '...' (abre pasta)
+            folder_btn = ttk.Button(
+                self.history_buttons_frame,
+                text="...",
+                command=lambda fp=file_path: self.open_history_folder(fp),
+                width=3
+            )
+            folder_btn.grid(row=idx, column=1, sticky=tk.W, pady=2)
+            self.history_buttons.append(folder_btn)
     
     def open_history_file(self, file_path):
         """Abre um arquivo do histórico."""
@@ -574,30 +591,18 @@ class RandomFilePickerGUI:
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao abrir arquivo: {e}")
     
-    def open_last_folder(self):
-        """Abre a última pasta que foi aberta."""
-        if not self.last_opened_folder:
-            messagebox.showinfo("Informação", "Nenhuma pasta foi aberta ainda.")
-            return
-        
+    def open_history_folder(self, file_path):
+        """Abre a pasta onde está o arquivo do histórico."""
         try:
-            if not Path(self.last_opened_folder).exists():
-                messagebox.showerror("Erro", "A pasta não existe mais!")
-                self.last_opened_folder = None
-                self.update_last_folder_button_state()
+            folder_path = Path(file_path).parent
+            if not folder_path.exists():
+                messagebox.showerror("Erro", "Pasta não encontrada!")
                 return
             
-            open_folder(self.last_opened_folder)
-            self.log_message(f"Abrindo última pasta: {self.last_opened_folder}", "info")
+            open_folder(str(folder_path))
+            self.log_message(f"Abrindo pasta: {folder_path}", "info")
         except Exception as e:
             messagebox.showerror("Erro", f"Erro ao abrir pasta: {e}")
-    
-    def update_last_folder_button_state(self):
-        """Atualiza o estado do botão de última pasta."""
-        if self.last_opened_folder and Path(self.last_opened_folder).exists():
-            self.last_folder_btn.config(state='normal')
-        else:
-            self.last_folder_btn.config(state='disabled')
     
     def _get_default_app(self, file_path):
         """Obtém o aplicativo padrão que abrirá o arquivo."""
@@ -623,56 +628,77 @@ class RandomFilePickerGUI:
         except Exception as e:
             self.log_message(f"Erro ao abrir arquivo: {e}", "error")
     
-    def _load_file_to_buffer(self, file_path):
-        """Carrega arquivo completo no buffer com chunks, progresso e cancelamento.
-        Aguarda até o buffer estar válido (arquivo totalmente sincronizado).
+    def _force_file_download(self, file_path):
+        """Força o download completo do arquivo da nuvem lendo-o progressivamente.
         
-        Retorna: True se sucesso, False se cancelado
+        Retorna: True se conseguiu ler o arquivo completo, False caso contrário
+        """
+        import os
+        from pathlib import Path
+        
+        try:
+            file_size = os.path.getsize(file_path)
+            self.log_message(f"📥 Forçando download do arquivo ({file_size / (1024*1024):.1f} MB)...", "info")
+            
+            chunk_size = 1024 * 1024  # 1MB por chunk
+            total_read = 0
+            
+            with open(file_path, 'rb') as f:
+                while True:
+                    chunk = f.read(chunk_size)
+                    if not chunk:
+                        break
+                    
+                    total_read += len(chunk)
+                    progress = (total_read / file_size) * 100
+                    
+                    # Atualiza progresso a cada 10MB
+                    if total_read % (10 * 1024 * 1024) < chunk_size:
+                        self.log_message(
+                            f"⏳ Baixando: {progress:.1f}% ({total_read / (1024*1024):.1f} MB)",
+                            "info"
+                        )
+            
+            self.log_message(f"✓ Download completo: {total_read / (1024*1024):.1f} MB", "success")
+            return True
+            
+        except Exception as e:
+            self.log_message(f"❌ Erro ao forçar download: {e}", "error")
+            return False
+    
+    def _load_file_to_buffer(self, file_path):
+        """Carrega arquivo na memória, forçando download se necessário.
+        
+        Retorna: True se sucesso, False se cancelado/inválido
         """
         import time
         from pathlib import Path
         
-        max_retries = 10  # Máximo de tentativas
-        retry_delay = 5   # Segundos entre tentativas
+        max_retries = 5  # 5 tentativas
+        retry_delay = 3   # 3 segundos entre tentativas
         
         for attempt in range(1, max_retries + 1):
             try:
-                # NOVA VERIFICAÇÃO: Detecta se é placeholder de nuvem
-                from random_file_picker.core.file_loader import is_cloud_placeholder
+                self.log_message(f"🔍 Tentativa {attempt}/{max_retries}...", "info")
                 
-                is_placeholder, cloud_service = is_cloud_placeholder(file_path)
+                # FASE 1: FORÇA DOWNLOAD DO ARQUIVO (lê progressivamente)
+                if not self._force_file_download(file_path):
+                    if attempt < max_retries:
+                        self.log_message(f"⏳ Aguardando {retry_delay}s antes de tentar novamente...", "warning")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        self.log_message("❌ Não foi possível baixar o arquivo", "error")
+                        self.file_data_buffer = None
+                        return False
                 
-                self.log_message(
-                    f"🔍 Verificação de placeholder (tentativa {attempt}/{max_retries}): is_placeholder={is_placeholder}, service={cloud_service}",
-                    "info"
-                )
-                
-                if is_placeholder and attempt < max_retries:
-                    self.log_message(
-                        f"⚠ Arquivo ainda sincronizando do {cloud_service}",
-                        "warning"
-                    )
-                    self.log_message(
-                        f"⏳ Aguardando {retry_delay} segundos antes de tentar novamente...",
-                        "info"
-                    )
+                # AGUARDA UM POUCO para Windows terminar de hidratar
+                if attempt > 1:  # Nas tentativas subsequentes, aguarda mais
+                    self.log_message(f"⏳ Aguardando Windows sincronizar ({retry_delay}s)...", "info")
                     time.sleep(retry_delay)
-                    continue  # Tenta novamente
                 
-                if is_placeholder and attempt >= max_retries:
-                    self.log_message(
-                        f"❌ Arquivo continua sincronizando após {max_retries} tentativas",
-                        "error"
-                    )
-                    self.log_message(
-                        f"Dica: Abra o arquivo uma vez para forçar o download completo.",
-                        "info"
-                    )
-                    self.file_data_buffer = None
-                    return False
-                
-                self.log_message("Carregando arquivo completo na memória...", "info")
-                self.log_message("(Arquivos grandes podem levar alguns minutos)", "warning")
+                # FASE 2: CARREGA NA MEMÓRIA
+                self.log_message("📂 Carregando arquivo na memória...", "info")
                 
                 # Mostra botão de cancelar
                 self.root.after(0, self.show_cancel_button)
@@ -699,62 +725,63 @@ class RandomFilePickerGUI:
                 # Oculta botão de cancelar
                 self.root.after(0, self.hide_cancel_button)
                 
-                if success and file_data:
-                    # VALIDA SE O BUFFER É VÁLIDO (não é placeholder)
-                    file_ext = Path(file_path).suffix.lower()
-                    buffer_valid = True
-                    
-                    if file_ext in ['.rar', '.cbr']:
-                        from random_file_picker.core.archive_extractor import validate_rar_buffer
-                        buffer_valid = validate_rar_buffer(file_data, self.log_message)
-                    elif file_ext in ['.zip', '.cbz']:
-                        from random_file_picker.core.archive_extractor import validate_zip_buffer
-                        buffer_valid = validate_zip_buffer(file_data, self.log_message)
-                    
-                    if not buffer_valid and attempt < max_retries:
-                        self.log_message(
-                            f"⚠ Buffer carregado mas inválido (placeholder) - tentativa {attempt}/{max_retries}",
-                            "warning"
-                        )
-                        self.log_message(
-                            f"⏳ Aguardando {retry_delay} segundos antes de tentar novamente...",
-                            "info"
-                        )
-                        time.sleep(retry_delay)
-                        continue  # Tenta recarregar
-                    
-                    if not buffer_valid and attempt >= max_retries:
-                        self.log_message(
-                            f"❌ Buffer continua inválido após {max_retries} tentativas",
-                            "error"
-                        )
-                        self.file_data_buffer = None
-                        return False
-                    
+                if not success or not file_data:
+                    self.log_message("❌ Carregamento cancelado pelo usuário", "error")
+                    return False
+                
+                # FASE 3: VALIDA SE BUFFER É REAL (não é placeholder)
+                self.log_message("🔍 Validando conteúdo do buffer...", "info")
+                
+                file_ext = Path(file_path).suffix.lower()
+                buffer_valid = True
+                
+                if file_ext in ['.rar', '.cbr']:
+                    from random_file_picker.core.archive_extractor import validate_rar_buffer
+                    buffer_valid = validate_rar_buffer(file_data, self.log_message)
+                elif file_ext in ['.zip', '.cbz']:
+                    from random_file_picker.core.archive_extractor import validate_zip_buffer
+                    buffer_valid = validate_zip_buffer(file_data, self.log_message)
+                
+                if buffer_valid:
                     # Buffer válido!
                     self.file_data_buffer = file_data
                     elapsed = self.file_loader.get_elapsed_time()
                     self.log_message(
-                        f"✓ Arquivo carregado: {len(self.file_data_buffer)} bytes em {elapsed:.1f}s",
+                        f"✓ Buffer válido: {len(self.file_data_buffer)} bytes em {elapsed:.1f}s",
                         "success"
                     )
                     return True
                 else:
-                    if not success:
-                        self.log_message("❌ Carregamento cancelado pelo usuário", "error")
+                    # Buffer inválido (placeholder)
+                    if attempt < max_retries:
+                        self.log_message(
+                            f"⚠ Buffer ainda é placeholder - tentando novamente...",
+                            "warning"
+                        )
+                        # Aguarda mais tempo antes de tentar novamente
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        self.log_message(
+                            f"❌ Buffer continua inválido após {max_retries} tentativas",
+                            "error"
+                        )
+                        self.log_message(
+                            "💡 Dica: Abra o arquivo no explorador/YACReader para forçar download completo.",
+                            "info"
+                        )
+                        self.file_data_buffer = None
                         return False
-                
+                    
             except Exception as e:
-                self.log_message(f"Erro ao carregar arquivo: {e}", "error")
+                self.log_message(f"❌ Erro: {e}", "error")
                 self.root.after(0, self.hide_cancel_button)
                 if attempt < max_retries:
-                    self.log_message(f"Tentando novamente em {retry_delay} segundos...", "info")
+                    self.log_message(f"⏳ Tentando novamente em {retry_delay}s...", "info")
                     time.sleep(retry_delay)
-                    continue
-                return False
+                else:
+                    return False
         
-        # Se chegou aqui, esgotou as tentativas
-        self.log_message("❌ Não foi possível carregar buffer válido", "error")
         return False
     
 
@@ -1179,7 +1206,6 @@ class RandomFilePickerGUI:
                 # Salva a última pasta aberta
                 folder_path = os.path.dirname(folder_to_open)
                 self.last_opened_folder = folder_path
-                self.update_last_folder_button_state()
                 status_parts.append("pasta aberta")
             else:
                 self.log_message("\nPasta não aberta (opção desmarcada)", "info")
@@ -1279,7 +1305,6 @@ class RandomFilePickerGUI:
             self.last_opened_folder = config.get("last_opened_folder", None)
             
             self.update_history_buttons()
-            self.update_last_folder_button_state()
             
         except Exception as e:
             self.log_message(f"Erro ao carregar configuração: {e}", "error")

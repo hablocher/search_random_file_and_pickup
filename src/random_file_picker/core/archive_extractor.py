@@ -333,27 +333,15 @@ class ArchiveExtractor:
             image, page_count = self.extract_from_pdf(file_data)
             return (image, page_count, None)
         
-        # RAR - VALIDA BUFFER ANTES DE EXTRAIR
+        # RAR
         if file_ext in ['.rar', '.cbr'] or detected_format in ['rar', 'rar5']:
             self._log("📦 Detectado arquivo RAR/CBR")
-            
-            # Valida se o buffer é válido antes de tentar extrair
-            if not validate_rar_buffer(file_data, self.log_callback):
-                self._log("⚠ Buffer RAR inválido - arquivo não totalmente sincronizado")
-                return (None, 0, 'SYNCING')
-            
             image, page_count, status = self.extract_from_rar(file_data)
             return (image, page_count, status)
         
-        # ZIP - VALIDA BUFFER ANTES DE EXTRAIR
+        # ZIP
         if file_ext in ['.zip', '.cbz'] or detected_format == 'zip':
             self._log("📦 Detectado arquivo ZIP/CBZ")
-            
-            # Valida se o buffer é válido antes de tentar extrair
-            if not validate_zip_buffer(file_data, self.log_callback):
-                self._log("⚠ Buffer ZIP inválido - arquivo não totalmente sincronizado")
-                return (None, 0, 'SYNCING')
-            
             image, page_count = self.extract_from_zip(file_data)
             return (image, page_count, None)
         
