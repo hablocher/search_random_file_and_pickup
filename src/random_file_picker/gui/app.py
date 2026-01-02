@@ -1,17 +1,15 @@
 import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog, messagebox
-import json
 import os
 import subprocess
 import platform
-import mimetypes
+import time
 from pathlib import Path
 import threading
-import zipfile
-import rarfile
-import io
-import fitz  # PyMuPDF
 from PIL import Image, ImageTk
+import gc
+import traceback
+
 from random_file_picker.core.file_picker import pick_random_file, open_folder, pick_random_file_with_zip_support, cleanup_temp_dir
 from random_file_picker.core.sequential_selector import (
     select_file_with_sequence_logic,
@@ -20,7 +18,13 @@ from random_file_picker.core.sequential_selector import (
     get_next_unread_file,
 )
 from random_file_picker.utils.system_utils import get_default_app_info, format_app_info_for_log
-import time
+
+# Novos módulos refatorados
+from .config_manager import ConfigManager
+from .file_loader import FileLoader
+from .archive_extractor import ArchiveExtractor
+from .thumbnail_generator import ThumbnailGenerator
+from .file_analyzer import FileAnalyzer
 
 
 class RandomFilePickerGUI:
@@ -38,8 +42,13 @@ class RandomFilePickerGUI:
         self.last_opened_folder = None  # Última pasta aberta
         self.current_image = None  # Referência para imagem atual (evita garbage collection)
         self.file_data_buffer = None  # Buffer reutilizável para carregar arquivos (evita vazamento de memória)
-        self.cancel_loading = False  # Flag para cancelar carregamento
-        self.loading_start_time = None  # Tempo de início do carregamento
+        
+        # Módulos refatorados
+        self.config_manager = ConfigManager(self.config_file)
+        self.file_loader = FileLoader(chunk_size=1024 * 1024)  # 1MB chunks
+        self.archive_extractor = ArchiveExtractor(log_callback=self.log_message)
+        self.thumbnail_generator = ThumbnailGenerator(max_size=(200, 280))
+        self.file_analyzer = FileAnalyzer()
         
         self.setup_ui()
         self.load_config()
@@ -337,14 +346,14 @@ class RandomFilePickerGUI:
     
     def store_initial_config(self):
         """Armazena a configuração inicial para comparação."""
-        self.initial_config = self.get_current_config()
+        self.config_manager.store_initial_config(self.get_current_config())
         self.config_changed = False
         self.update_save_button_state()
     
     def check_config_changed(self):
         """Verifica se a configuração foi alterada."""
         current = self.get_current_config()
-        changed = current != self.initial_config
+        changed = self.config_manager.has_changed(current)
         if changed != self.config_changed:
             self.config_changed = changed
             self.update_save_button_state()
@@ -410,7 +419,7 @@ class RandomFilePickerGUI:
     
     def cancel_file_loading(self):
         """Cancela o carregamento do arquivo."""
-        self.cancel_loading = True
+        self.file_loader.cancel()
         self.log_message("\n⚠ Cancelamento solicitado pelo usuário...", "warning")
     
     def show_cancel_button(self):
@@ -561,219 +570,105 @@ class RandomFilePickerGUI:
             
             # Mostra botão de cancelar
             self.root.after(0, self.show_cancel_button)
-            self.loading_start_time = time.time()
-            self.cancel_loading = False
             
-            # Lê o arquivo em chunks para poder cancelar
-            chunk_size = 1024 * 1024  # 1MB por chunk
-            chunks = []
-            file_size = os.path.getsize(file_path)
-            bytes_read = 0
+            # Callback de progresso
+            def progress_callback(progress, bytes_read, elapsed):
+                self.root.after(0, lambda e=elapsed: self.update_cancel_button_time(e))
+                self.log_message(
+                    f"⏳ Carregando: {progress:.1f}% ({bytes_read / (1024*1024):.1f} MB)",
+                    "info"
+                )
             
-            with open(file_path, 'rb') as f:
-                while True:
-                    # Verifica cancelamento
-                    if self.cancel_loading:
-                        self.log_message("❌ Carregamento cancelado pelo usuário", "error")
-                        self.root.after(0, self.hide_cancel_button)
-                        return False
-                    
-                    chunk = f.read(chunk_size)
-                    if not chunk:
-                        break
-                    
-                    chunks.append(chunk)
-                    bytes_read += len(chunk)
-                    
-                    # Atualiza tempo a cada 0.5s
-                    elapsed = time.time() - self.loading_start_time
-                    if int(elapsed * 2) % 1 == 0:  # A cada 0.5s
-                        progress = (bytes_read / file_size * 100) if file_size > 0 else 0
-                        self.root.after(0, lambda e=elapsed: self.update_cancel_button_time(e))
-                        self.log_message(f"⏳ Carregando: {progress:.1f}% ({bytes_read / (1024*1024):.1f} MB)", "info")
+            # Callback de verificação de cancelamento
+            def cancel_check():
+                return self.file_loader.cancel_requested
             
-            # Junta todos os chunks
-            self.file_data_buffer = b''.join(chunks)
-            elapsed_total = time.time() - self.loading_start_time
+            # Usa FileLoader para carregar
+            file_data, success = self.file_loader.load_file(
+                file_path,
+                progress_callback=progress_callback,
+                cancel_check_callback=cancel_check
+            )
             
             # Oculta botão de cancelar
             self.root.after(0, self.hide_cancel_button)
             
-            self.log_message(f"✓ Arquivo carregado: {len(self.file_data_buffer)} bytes em {elapsed_total:.1f}s", "success")
-            return True
+            if success:
+                self.file_data_buffer = file_data
+                elapsed = self.file_loader.get_elapsed_time()
+                self.log_message(
+                    f"✓ Arquivo carregado: {len(self.file_data_buffer)} bytes em {elapsed:.1f}s",
+                    "success"
+                )
+                return True
+            else:
+                self.log_message("❌ Carregamento cancelado pelo usuário", "error")
+                return False
             
         except Exception as e:
             self.log_message(f"Erro ao carregar arquivo: {e}", "error")
             self.root.after(0, self.hide_cancel_button)
             return False
     
-    def _detect_archive_format(self, file_path):
-        """Detecta o formato do arquivo pela assinatura (magic bytes).
-        
-        Retorna: 'zip', 'rar', '7z', ou None
-        """
-        try:
-            with open(file_path, 'rb') as f:
-                magic = f.read(10)
-                
-                # ZIP: 50 4B (PK)
-                if magic[:2] == b'PK':
-                    return 'zip'
-                # RAR 1.5-4.x: 52 61 72 21 1A 07 (Rar!)
-                elif magic[:4] == b'Rar!':
-                    return 'rar'
-                # RAR 5+: 52 61 72 21 1A 07 01 00
-                elif magic[:8] == b'Rar!\x1a\x07\x01\x00':
-                    return 'rar5'
-                # 7-Zip: 37 7A BC AF 27 1C
-                elif magic[:6] == b'7z\xbc\xaf\x27\x1c':
-                    return '7z'
-                
-                return None
-        except Exception as e:
-            self.log_message(f"Erro ao detectar formato: {e}", "error")
-            return None
+
     
     def _try_extract_from_zip(self, file_path):
         """Tenta extrair imagem de arquivo ZIP (usa buffer já carregado)."""
-        try:
-            if not self.file_data_buffer:
-                self.log_message("⚠ Buffer não carregado, pulando extração ZIP", "warning")
-                return (None, 0)
-            
-            # Processa o ZIP da memória (buffer já carregado)
-            self.log_message("Processando arquivo ZIP...", "info")
-            with zipfile.ZipFile(io.BytesIO(self.file_data_buffer), 'r') as zip_file:
-                file_list = zip_file.namelist()
-                page_count = len([f for f in file_list if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
-                self.log_message(f"✓ Arquivo ZIP aberto! Arquivos encontrados: {len(file_list)}", "success")
-                
-                # Procura pela primeira imagem
-                for filename in sorted(file_list):
-                    lower_name = filename.lower()
-                    if lower_name.endswith(('.jpg', '.jpeg', '.png')) and not filename.startswith('__MACOSX'):
-                        self.log_message(f"Extraindo imagem: {filename}", "info")
-                        
-                        try:
-                            with zip_file.open(filename) as image_file:
-                                image_data = image_file.read()
-                                image = Image.open(io.BytesIO(image_data))
-                                self.log_message(f"✓ Imagem carregada: {image.size} {image.format}", "success")
-                                return (image, page_count)
-                        except Exception as e:
-                            self.log_message(f"Erro ao ler imagem do ZIP: {e}", "warning")
-                            continue
-                
-                self.log_message("Nenhuma imagem JPG/PNG encontrada no ZIP", "warning")
-                return (None, 0)
-                
-        except zipfile.BadZipFile:
-            self.log_message("✗ Não é um arquivo ZIP válido", "warning")
+        if not self.file_data_buffer:
+            self.log_message("⚠ Buffer não carregado, pulando extração ZIP", "warning")
             return (None, 0)
-        except Exception as e:
-            self.log_message(f"✗ Erro ao processar ZIP: {e}", "error")
-            return (None, 0)
+        
+        self.log_message("Processando arquivo ZIP...", "info")
+        image, page_count = self.archive_extractor.extract_from_zip(self.file_data_buffer)
+        
+        if image:
+            self.log_message(f"✓ Imagem extraída do ZIP! Tamanho: {image.size}", "success")
+        else:
+            self.log_message("Nenhuma imagem encontrada no ZIP", "warning")
+        
+        return (image, page_count)
     
     def _try_extract_from_rar(self, file_path):
         """Tenta extrair imagem de arquivo RAR (usa buffer já carregado)."""
-        try:
-            if not self.file_data_buffer:
-                self.log_message("⚠ Buffer não carregado, pulando extração RAR", "warning")
-                return (None, 0)
-            
-            # Processa o RAR da memória (buffer já carregado)
-            self.log_message("Processando arquivo RAR...", "info")
-            archive_file = rarfile.RarFile(io.BytesIO(self.file_data_buffer), 'r')
-            file_list = archive_file.namelist()
-            page_count = len([f for f in file_list if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
-            self.log_message(f"✓ Arquivo RAR aberto! Arquivos encontrados: {len(file_list)}", "success")
-            
-            # Procura pela primeira imagem
-            for filename in sorted(file_list):
-                lower_name = filename.lower()
-                if lower_name.endswith(('.jpg', '.jpeg', '.png')) and not filename.startswith('__MACOSX'):
-                    self.log_message(f"Extraindo imagem: {filename}", "info")
-                    
-                    try:
-                        with archive_file.open(filename) as image_file:
-                            image_data = image_file.read()
-                            image = Image.open(io.BytesIO(image_data))
-                            self.log_message(f"✓ Imagem carregada: {image.size} {image.format}", "success")
-                            archive_file.close()
-                            return (image, page_count)
-                            
-                    except rarfile.BadRarFile as e:
-                        # Arquivo está parcialmente sincronizado
-                        error_msg = str(e)
-                        self.log_message(f"⚠ Erro de sincronização: {error_msg}", "warning")
-                        self.log_message("⚠ O arquivo pode estar em nuvem e ainda não foi completamente baixado", "warning")
-                        self.log_message("💡 Dica: Abra o arquivo uma vez no explorador para forçar download completo", "info")
-                        archive_file.close()
-                        return ("SYNCING", page_count)
-                        
-                    except Exception as e:
-                        self.log_message(f"Erro ao ler imagem do RAR: {e}", "warning")
-                        continue
-            
-            # Se chegou aqui, não encontrou imagens
-            self.log_message("Nenhuma imagem JPG/PNG encontrada no RAR", "warning")
-            archive_file.close()
+        if not self.file_data_buffer:
+            self.log_message("⚠ Buffer não carregado, pulando extração RAR", "warning")
             return (None, 0)
-            
-        except rarfile.BadRarFile as e:
-            self.log_message(f"✗ Não é um arquivo RAR válido: {e}", "warning")
-            self.root.after(0, self.hide_cancel_button)
-            return (None, 0)
-        except Exception as e:
-            self.log_message(f"✗ Erro ao processar RAR: {e}", "error")
-            self.root.after(0, self.hide_cancel_button)
+        
+        self.log_message("Processando arquivo RAR...", "info")
+        image, page_count, status = self.archive_extractor.extract_from_rar(self.file_data_buffer)
+        
+        if status == 'SYNCING':
+            self.log_message("⚠ Arquivo em sincronização com a nuvem", "warning")
+            self.log_message("💡 Dica: Abra o arquivo uma vez no explorador para forçar download completo", "info")
+            return ("SYNCING", page_count)
+        elif image:
+            self.log_message(f"✓ Imagem extraída do RAR! Tamanho: {image.size}", "success")
+            return (image, page_count)
+        else:
+            self.log_message("Nenhuma imagem encontrada no RAR", "warning")
             return (None, 0)
     
     def _try_extract_from_pdf(self, file_path):
         """Tenta extrair primeira página de arquivo PDF como imagem (usa buffer já carregado)."""
-        try:
-            if not self.file_data_buffer:
-                self.log_message("⚠ Buffer não carregado, pulando extração PDF", "warning")
-                return (None, 0)
-            
-            # Processa o PDF da memória (buffer já carregado)
-            self.log_message("Processando arquivo PDF...", "info")
-            doc = fitz.open(stream=self.file_data_buffer, filetype="pdf")
-            
-            if len(doc) == 0:
-                self.log_message("✗ PDF não contém páginas", "warning")
-                doc.close()
-                return (None, 0)
-            
-            self.log_message(f"✓ Arquivo PDF aberto! Páginas encontradas: {len(doc)}", "success")
-            page_count = len(doc)
-            
-            # Pega a primeira página
-            page = doc[0]
-            
-            # Renderiza a página como imagem
-            # zoom = 2 para melhor qualidade
-            mat = fitz.Matrix(2, 2)
-            pix = page.get_pixmap(matrix=mat)
-            
-            # Converte pixmap para PIL Image
-            img_data = pix.tobytes("png")
-            image = Image.open(io.BytesIO(img_data))
-            
-            self.log_message(f"✓ Primeira página extraída: {image.size}", "success")
-            
-            doc.close()
-            return image
-            
-        except Exception as e:
-            self.log_message(f"✗ Erro ao processar PDF: {e}", "error")
+        if not self.file_data_buffer:
+            self.log_message("⚠ Buffer não carregado, pulando extração PDF", "warning")
             return (None, 0)
+        
+        self.log_message("Processando arquivo PDF...", "info")
+        image, page_count = self.archive_extractor.extract_from_pdf(self.file_data_buffer)
+        
+        if image:
+            self.log_message(f"✓ Primeira página extraída do PDF! Tamanho: {image.size}", "success")
+        else:
+            self.log_message("Não foi possível extrair página do PDF", "warning")
+        
+        return (image, page_count)
     
     def _extract_first_image_from_zip(self, file_path):
-        """Extrai a primeira imagem (jpg/png) de um arquivo compactado (ZIP/RAR).
+        """Extrai a primeira imagem (jpg/png) de um arquivo compactado (ZIP/RAR/PDF).
         
         Retorna:
-            PIL.Image, "SYNCING" (se sincronizando), ou None
+            Tupla (PIL.Image, page_count) ou (\"SYNCING\", page_count) ou (None, 0)
         """
         try:
             # Verifica se o arquivo existe e tem tamanho razoável
@@ -787,154 +682,44 @@ class RandomFilePickerGUI:
                 # Carregamento cancelado
                 return (None, 0)
             
-            # Detecta formato pela assinatura do arquivo
-            detected_format = self._detect_archive_format(file_path)
-            if detected_format:
-                self.log_message(f"Formato detectado pela assinatura: {detected_format.upper()}", "info")
+            # Usa ArchiveExtractor para extrair imagem
+            self.log_message(f"Detectando formato e extraindo imagem...", "info")
+            image, page_count, status = self.archive_extractor.extract_first_image(
+                file_path,
+                self.file_data_buffer
+            )
             
-            # Tenta extrair baseado na extensão e formato detectado
-            file_ext = Path(file_path).suffix.lower()
+            self.log_message(f"Resultado: image={'presente' if image else 'None'}, pages={page_count}, status={status}", "info")
             
-            # PDF - verifica primeiro se é PDF
-            if file_ext == '.pdf':
-                result = self._try_extract_from_pdf(file_path)
-                if result is not None:
-                    return result
-            
-            # Prioriza RAR se extensão ou detecção indicar
-            if file_ext in ['.rar', '.cbr'] or detected_format in ['rar', 'rar5']:
-                result = self._try_extract_from_rar(file_path)
-                if result is not None:
-                    return result
-                # Se falhou, tenta ZIP como fallback
-                result = self._try_extract_from_zip(file_path)
-                if result is not None:
-                    return result
-            
-            # Prioriza ZIP se extensão ou detecção indicar
-            elif file_ext in ['.zip', '.cbz'] or detected_format == 'zip':
-                result = self._try_extract_from_zip(file_path)
-                if result is not None:
-                    return result
-                # Se falhou, tenta RAR como fallback
-                result = self._try_extract_from_rar(file_path)
-                if result is not None:
-                    return result
-            
-            # Se não tem extensão conhecida, tenta ambos
-            else:
-                # Tenta ZIP primeiro
-                result = self._try_extract_from_zip(file_path)
-                if result is not None:
-                    return result
-                # Depois tenta RAR
-                result = self._try_extract_from_rar(file_path)
-                if result is not None:
-                    return result
-            
-            # Se chegou aqui, não conseguiu extrair
-            if detected_format == '7z':
+            # Trata status especiais
+            if status == 'SYNCING':
+                return ("SYNCING", page_count)
+            elif status == '7Z_NOT_SUPPORTED':
                 self.log_message("⚠ Arquivo é 7-Zip (.7z), formato não suportado ainda", "warning")
                 self.log_message("Extraia manualmente ou converta para ZIP/RAR", "info")
-            else:
+                return (None, 0)
+            elif status == 'UNKNOWN_FORMAT':
                 self.log_message("Não foi possível extrair imagem do arquivo", "warning")
+                return (None, 0)
             
-            return (None, 0)
+            return (image, page_count)
             
         except Exception as e:
-            # Outro erro
             self.log_message(f"Erro ao extrair imagem do arquivo: {e}", "error")
-            import traceback
             self.log_message(traceback.format_exc(), "error")
             return (None, 0)
     
-    def _create_default_thumbnail(self, message="Prévia não disponível"):
-        """Cria uma imagem padrão quando não é possível extrair a miniatura."""
-        from PIL import ImageDraw, ImageFont
-        
-        # Cria uma imagem cinza com texto
-        img = Image.new('RGB', (200, 280), color='#e0e0e0')
-        draw = ImageDraw.Draw(img)
-        
-        # Adiciona borda
-        draw.rectangle([0, 0, 199, 279], outline='#999999', width=2)
-        
-        # Adiciona texto no centro
-        # Usa fonte padrão (pequena)
-        text = message
-        
-        # Calcula posição central
-        bbox = draw.textbbox((0, 0), text)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
-        x = (200 - text_width) // 2
-        y = (280 - text_height) // 2
-        
-        draw.text((x, y), text, fill='#666666')
-        
-        return img
+
     
     def _analyze_file_and_display_info(self, file_path):
         """Analisa arquivo e exibe tabela com informações."""
         try:
-            file_name = Path(file_path).name
-            folder_path = str(Path(file_path).parent)
-            file_size = os.path.getsize(file_path)
-            file_ext = Path(file_path).suffix.lower()
+            # Usa FileAnalyzer para obter informações
+            info = self.file_analyzer.analyze_file(file_path)
             
-            # Detecta formato
-            detected_format = self._detect_archive_format(file_path)
-            format_name = "Desconhecido"
-            page_count = 0
-            
-            # Carrega arquivo na memória e analisa
-            if file_ext == '.pdf' or detected_format == 'pdf':
-                format_name = "PDF"
-                try:
-                    with open(file_path, 'rb') as f:
-                        pdf_data = f.read()
-                    doc = fitz.open(stream=pdf_data, filetype="pdf")
-                    page_count = len(doc)
-                    doc.close()
-                except:
-                    pass
-            elif file_ext in ['.rar', '.cbr'] or detected_format in ['rar', 'rar5']:
-                format_name = "RAR"
-                try:
-                    with open(file_path, 'rb') as f:
-                        rar_data = f.read()
-                    archive = rarfile.RarFile(io.BytesIO(rar_data), 'r')
-                    file_list = archive.namelist()
-                    page_count = len([f for f in file_list if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
-                    archive.close()
-                except:
-                    pass
-            elif file_ext in ['.zip', '.cbz'] or detected_format == 'zip':
-                format_name = "ZIP"
-                try:
-                    with open(file_path, 'rb') as f:
-                        zip_data = f.read()
-                    archive = zipfile.ZipFile(io.BytesIO(zip_data), 'r')
-                    file_list = archive.namelist()
-                    page_count = len([f for f in file_list if f.lower().endswith(('.jpg', '.jpeg', '.png'))])
-                    archive.close()
-                except:
-                    pass
-            elif detected_format == '7z':
-                format_name = "7-Zip"
-            
-            # Cria tabela formatada
-            self.log_message("\n" + "=" * 70, "info")
-            self.log_message("INFORMAÇÕES DO ARQUIVO", "info")
-            self.log_message("=" * 70, "info")
-            self.log_message(f"Nome:        {file_name}", "success")
-            self.log_message(f"Pasta:       {folder_path}", "info")
-            self.log_message(f"Formato:     {format_name}", "info")
-            if page_count > 0:
-                page_label = "Páginas" if format_name == "PDF" else "Imagens"
-                self.log_message(f"{page_label}:     {page_count}", "info")
-            self.log_message(f"Tamanho:     {file_size:,} bytes ({file_size / (1024*1024):.2f} MB)", "info")
-            self.log_message("=" * 70 + "\n", "info")
+            # Formata e exibe a tabela
+            table = self.file_analyzer.format_file_info_table(info)
+            self.log_message("\n" + table, "info")
             
         except Exception as e:
             self.log_message(f"Erro ao analisar arquivo: {e}", "error")
@@ -957,18 +742,18 @@ class RandomFilePickerGUI:
                 image = result
                 page_count = 0
             
+            # Usa ThumbnailGenerator para criar imagens
             if image == "SYNCING":
                 # Arquivo está sincronizando do OneDrive
                 self.log_message("Exibindo mensagem de sincronização", "info")
-                image = self._create_default_thumbnail("Sincronizando\ndo OneDrive...\n\nTente novamente\nem alguns minutos")
+                image = self.thumbnail_generator.create_syncing_thumbnail()
             elif image is None:
                 # Se não conseguiu, usa imagem padrão
                 self.log_message("Usando imagem padrão (arquivo não é ZIP/RAR ou não contém imagens)", "info")
-                image = self._create_default_thumbnail("Prévia não\ndisponível")
-            
-            # Redimensiona mantendo proporção
-            # Tamanho máximo: 200x280
-            image.thumbnail((200, 280), Image.Resampling.LANCZOS)
+                image = self.thumbnail_generator.create_default_thumbnail()
+            else:
+                # Cria thumbnail da imagem extraída
+                image = self.thumbnail_generator.create_thumbnail(image)
             
             # Converte para formato do Tkinter
             photo = ImageTk.PhotoImage(image)
@@ -991,8 +776,7 @@ class RandomFilePickerGUI:
             self.file_data_buffer = None
             
             try:
-                image = self._create_default_thumbnail("Erro ao\ncarregar")
-                image.thumbnail((200, 280), Image.Resampling.LANCZOS)
+                image = self.thumbnail_generator.create_error_thumbnail()
                 photo = ImageTk.PhotoImage(image)
                 self.current_image = photo
                 self.thumbnail_label.configure(image=photo, text="")
@@ -1289,69 +1073,45 @@ class RandomFilePickerGUI:
             "use_sequence": self.use_sequence_var.get(),
             "history_limit": int(self.history_limit_var.get()),
             "keywords": self.keywords_var.get(),
-            "file_history": self.file_history
+            "process_zip": self.process_zip_var.get(),
+            "file_history": self.file_history,
+            "last_opened_folder": self.last_opened_folder
         }
         
-        try:
-            with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(config, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            self.log_message(f"Erro ao salvar configuração: {e}", "error")
+        success = self.config_manager.save_config(config)
+        if not success:
+            self.log_message("Erro ao salvar configuração", "error")
             
     def load_config(self):
         """Carrega a configuração salva."""
-        if not self.config_file.exists():
-            self.log_message("Nenhuma configuração anterior encontrada. Use os valores padrão.", "info")
-            return
-            
         try:
-            with open(self.config_file, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                
+            config = self.config_manager.load_config()
+            config = self.config_manager.validate_config(config)
+            
             # Restaurar pastas
             folders = config.get("folders", [])
             if folders:
                 self.folders_text.config(state='normal')
+                self.folders_text.delete("1.0", tk.END)
                 self.folders_text.insert("1.0", "\n".join(folders))
                 self.folders_text.config(state='disabled')
                 self.log_message(f"Configuração carregada: {len(folders)} pasta(s)", "success")
-                
-            # Restaurar prefixo
-            exclude_prefix = config.get("exclude_prefix", "_L_")
-            self.exclude_prefix_var.set(exclude_prefix)
             
-            # Restaurar preferência de abrir pasta
-            open_folder = config.get("open_folder", True)
-            self.open_folder_var.set(open_folder)
+            # Restaurar outras configurações
+            self.exclude_prefix_var.set(config.get("exclude_prefix", "_L_"))
+            self.open_folder_var.set(config.get("open_folder", True))
+            self.open_file_var.set(config.get("open_file", True))
+            self.use_sequence_var.set(config.get("use_sequence", True))
+            self.process_zip_var.set(config.get("process_zip", True))
+            self.keywords_var.set(config.get("keywords", ""))
+            self.history_limit_var.set(config.get("history_limit", 5))
             
-            # Restaurar preferência de abrir arquivo
-            open_file = config.get("open_file", False)
-            self.open_file_var.set(open_file)
-            
-            # Restaurar preferência de seleção sequencial
-            use_sequence = config.get("use_sequence", True)
-            self.use_sequence_var.set(use_sequence)
-            
-            # Restaurar preferência de processar ZIP
-            process_zip = config.get("process_zip", True)
-            self.process_zip_var.set(process_zip)
-            
-            # Restaurar palavras-chave
-            keywords = config.get("keywords", "")
-            self.keywords_var.set(keywords)
-            
-            # Restaurar histórico de arquivos
+            # Restaurar histórico e última pasta
             self.file_history = config.get("file_history", [])
-            
-            # Restaurar limite de histórico
-            history_limit = config.get("history_limit", 5)
-            self.history_limit_var.set(history_limit)
-            
-            # Restaurar última pasta aberta
             self.last_opened_folder = config.get("last_opened_folder", None)
-            self.update_last_folder_button_state()
             
             self.update_history_buttons()
+            self.update_last_folder_button_state()
             
         except Exception as e:
             self.log_message(f"Erro ao carregar configuração: {e}", "error")
